@@ -48,14 +48,12 @@ const ConsoleSidebar = ({ user, setUser }) => {
     try {
       const patientId = user?.patientId;
       if (patientId) {
-        // 🔑 FIXED: Pointing to /api/status/ instead of /api/users/status/
         await axios.put(`${import.meta.env.VITE_API_URL}/api/status/${patientId}`, { 
           status: 'offline' 
         });
       }
     } catch (error) {
       console.error("Failed to update status to offline on logout:", error);
-      // We continue to logout even if the network call fails
     }
 
     // 2. Clear local storage and reset state
@@ -154,14 +152,15 @@ const ConsoleSidebar = ({ user, setUser }) => {
 
       {/* User Status Profile Bar */}
       <div className="pt-4 mt-6 border-t-2 border-slate-200 flex items-center justify-between shrink-0 gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           
           <div className={`w-9 h-9 ${getAvatarBgColor()} text-white text-xs font-black flex items-center justify-center rounded-full shrink-0 shadow-sm uppercase tracking-wider select-none`}>
             {getInitials()}
           </div>
 
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-bold text-slate-950 truncate block">
+          <div className="flex flex-col min-w-0 flex-1">
+            {/* 🔑 FIXED: Removed 'truncate' and added 'break-words leading-tight' so long names wrap fully */}
+            <span className="text-xs font-bold text-slate-950 wrap-break-word leading-tight block">
               {user ? `${user.firstName} ${user.lastName}` : "Guest User"}
             </span>
             <span className="text-xs font-medium text-slate-500"></span>

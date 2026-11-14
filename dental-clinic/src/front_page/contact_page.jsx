@@ -81,7 +81,7 @@ const ContactPage = () => {
             Contact the General Dentist
           </h1>
           
-          <div className="bg-white border border-slate-100 shadow-xl rounded-[2rem] p-8 md:p-12 max-w-2xl mx-auto">
+          <div className="bg-white border border-slate-100 shadow-xl rounded-4xl p-8 md:p-12 max-w-2xl mx-auto">
             <form 
               onSubmit={(e) => handleMessageSubmit(e, 'dentist', dentistForm, setDentistForm)}
               className="space-y-5"
@@ -152,7 +152,7 @@ const ContactPage = () => {
             Contact the Developer
           </h2>
           
-          <div className="bg-white border border-slate-100 shadow-xl rounded-[2rem] p-8 md:p-12 max-w-2xl mx-auto">
+          <div className="bg-white border border-slate-100 shadow-xl rounded-4xl p-8 md:p-12 max-w-2xl mx-auto">
             <form 
               onSubmit={(e) => handleMessageSubmit(e, 'developer', devForm, setDevForm)}
               className="space-y-5"

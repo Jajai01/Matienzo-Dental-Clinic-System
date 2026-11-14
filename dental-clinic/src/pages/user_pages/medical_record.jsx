@@ -9,6 +9,11 @@ const MedicalRecord = ({ user, setUser }) => {
   const [isDoctorActive, setIsDoctorActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Carousel Indices State
+  const [activeRxIndex, setActiveRxIndex] = useState(0);
+  const [pastRxIndex, setPastRxIndex] = useState(0);
+  const [treatmentIndex, setTreatmentIndex] = useState(0);
+  
   // State to handle the floating chat window toggle
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState('');
@@ -139,18 +144,17 @@ const MedicalRecord = ({ user, setUser }) => {
 
     setIsUploading(true);
     try {
-      // Adjust this endpoint to match your backend route!
       await axios.post(`${import.meta.env.VITE_API_URL}/api/medical-records/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setUploadMessage('Photo uploaded successfully!');
-      setUploadFile(null); // Clear the input after success
+      setUploadFile(null); 
     } catch (error) {
       console.error("Upload failed:", error);
       setUploadMessage('Failed to upload photo.');
     } finally {
       setIsUploading(false);
-      setTimeout(() => setUploadMessage(''), 4000); // Hide message after 4s
+      setTimeout(() => setUploadMessage(''), 4000); 
     }
   };
 
@@ -205,51 +209,103 @@ const MedicalRecord = ({ user, setUser }) => {
                 </div>
               </div>
 
-              {/* PRESCRIPTIONS MODULE */}
+              {/* PRESCRIPTIONS MODULE WITH CAROUSELS */}
               <div className="bg-white border-2 border-slate-200/80 rounded-3xl p-6 shadow-sm flex flex-col gap-6">
                 
-                {/* ACTIVE PRESCRIPTIONS */}
+                {/* ACTIVE PRESCRIPTIONS CAROUSEL */}
                 <div>
-                  <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Active Prescriptions
-                  </h3>
-                  
-                  {activePrescriptions.length > 0 ? activePrescriptions.map((rx) => (
-                      <div key={rx._id || rx.id} className="border border-emerald-100 bg-emerald-50/30 rounded-xl p-4 flex flex-col mb-3">
-                          <div className="flex justify-between items-center mb-3">
-                              <div>
-                                  <h4 className="text-sm font-bold text-slate-900">{rx.medicine}</h4>
-                                  <p className="text-xs text-slate-600 mt-0.5">{rx.dosage}</p>
-                              </div>
-                              <span className="text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md">Active</span>
-                          </div>
-                          <div className="pt-3 border-t border-emerald-100 flex justify-between items-center">
-                              <span className="text-[10px] font-bold text-slate-500">Issued: {rx.date}</span>
-                          </div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Active Prescriptions
+                    </h3>
+                    {activePrescriptions.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-500">
+                          {(activeRxIndex % activePrescriptions.length) + 1} of {activePrescriptions.length}
+                        </span>
+                        <button 
+                          type="button"
+                          onClick={() => setActiveRxIndex(prev => (prev - 1 + activePrescriptions.length) % activePrescriptions.length)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer shadow-sm"
+                        >
+                          ‹
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setActiveRxIndex(prev => (prev + 1) % activePrescriptions.length)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer shadow-sm"
+                        >
+                          ›
+                        </button>
                       </div>
-                  )) : <div className="text-center py-4 text-xs text-slate-400 font-medium italic">No active prescriptions currently.</div>}
+                    )}
+                  </div>
+                  
+                  {activePrescriptions.length > 0 ? (() => {
+                    const rx = activePrescriptions[activeRxIndex % activePrescriptions.length];
+                    return (
+                      <div key={rx._id || rx.id} className="border border-emerald-100 bg-emerald-50/30 rounded-xl p-4 flex flex-col">
+                        <div className="flex justify-between items-center mb-3">
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">{rx.medicine}</h4>
+                            <p className="text-xs text-slate-600 mt-0.5">{rx.dosage}</p>
+                          </div>
+                          <span className="text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md">Active</span>
+                        </div>
+                        <div className="pt-3 border-t border-emerald-100 flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-slate-500">Issued: {rx.date}</span>
+                        </div>
+                      </div>
+                    );
+                  })() : <div className="text-center py-4 text-xs text-slate-400 font-medium italic">No active prescriptions currently.</div>}
                 </div>
 
-                {/* PAST / EXPIRED PRESCRIPTIONS */}
+                {/* PAST / EXPIRED PRESCRIPTIONS CAROUSEL */}
                 {pastPrescriptions.length > 0 && (
                   <div className="pt-4 border-t border-slate-100">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Past Prescriptions</h3>
-                    
-                    {pastPrescriptions.map((rx) => (
-                        <div key={rx._id || rx.id} className="border border-slate-100 bg-slate-50 opacity-75 rounded-xl p-4 flex flex-col mb-3">
-                            <div className="flex justify-between items-center mb-3">
-                                <div>
-                                    <h4 className="text-sm font-bold text-slate-700 line-through decoration-slate-300">{rx.medicine}</h4>
-                                    <p className="text-xs text-slate-500 mt-0.5">{rx.dosage}</p>
-                                </div>
-                                <span className="text-[10px] font-extrabold uppercase bg-slate-200 text-slate-500 px-2 py-0.5 rounded-md">Expired</span>
-                            </div>
-                            <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center">
-                                <span className="text-[10px] font-bold text-slate-400">Issued: {rx.date}</span>
-                            </div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Past Prescriptions</h3>
+                      {pastPrescriptions.length > 1 && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-400">
+                            {(pastRxIndex % pastPrescriptions.length) + 1} of {pastPrescriptions.length}
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => setPastRxIndex(prev => (prev - 1 + pastPrescriptions.length) % pastPrescriptions.length)}
+                            className="w-6 h-6 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 font-bold transition-colors cursor-pointer shadow-sm text-xs"
+                          >
+                            ‹
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setPastRxIndex(prev => (prev + 1) % pastPrescriptions.length)}
+                            className="w-6 h-6 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 font-bold transition-colors cursor-pointer shadow-sm text-xs"
+                          >
+                            ›
+                          </button>
                         </div>
-                    ))}
+                      )}
+                    </div>
+                    
+                    {(() => {
+                      const rx = pastPrescriptions[pastRxIndex % pastPrescriptions.length];
+                      return (
+                        <div key={rx._id || rx.id} className="border border-slate-100 bg-slate-50 opacity-75 rounded-xl p-4 flex flex-col">
+                          <div className="flex justify-between items-center mb-3">
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-700 line-through decoration-slate-300">{rx.medicine}</h4>
+                              <p className="text-xs text-slate-500 mt-0.5">{rx.dosage}</p>
+                            </div>
+                            <span className="text-[10px] font-extrabold uppercase bg-slate-200 text-slate-500 px-2 py-0.5 rounded-md">Expired</span>
+                          </div>
+                          <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center">
+                            <span className="text-[10px] font-bold text-slate-400">Issued: {rx.date}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -268,7 +324,7 @@ const MedicalRecord = ({ user, setUser }) => {
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <svg className="w-8 h-8 mb-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                        <p className="mb-2 text-sm text-slate-500 font-semibold truncate max-w-[200px]">
+                        <p className="mb-2 text-sm text-slate-500 font-semibold truncate max-w-50">
                           {uploadFile ? uploadFile.name : "Click to upload a photo"}
                         </p>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">PNG, JPG or JPEG</p>
@@ -285,7 +341,7 @@ const MedicalRecord = ({ user, setUser }) => {
                   <button 
                     type="submit" 
                     disabled={!uploadFile || isUploading} 
-                    className="w-full bg-[#D4AF37] hover:bg-amber-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition-colors text-sm uppercase tracking-wide"
+                    className="w-full bg-[#D4AF37] hover:bg-amber-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition-colors text-sm uppercase tracking-wide cursor-pointer"
                   >
                     {isUploading ? 'Uploading to Clinic...' : 'Submit Photo to Doctor'}
                   </button>
@@ -300,12 +356,40 @@ const MedicalRecord = ({ user, setUser }) => {
 
             </div>
 
-            {/* RIGHT COLUMN: Ledger */}
+            {/* RIGHT COLUMN: Ledger Carousel */}
             <div className="lg:col-span-5">
               <div className="bg-white border-2 border-slate-200/80 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider mb-4">Diagnosis & Treatment Ledger</h3>
-                {treatmentHistory.length > 0 ? treatmentHistory.map((record, idx) => (
-                    <div key={idx} className="bg-slate-50 border border-slate-200 rounded-2xl p-5 mb-4 shadow-sm hover:border-blue-300 transition-colors">
+                
+                {/* Carousel Header & Controls */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider">Diagnosis & Treatment Ledger</h3>
+                  {treatmentHistory.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-500">
+                        {(treatmentIndex % treatmentHistory.length) + 1} of {treatmentHistory.length}
+                      </span>
+                      <button 
+                        type="button" 
+                        onClick={() => setTreatmentIndex(prev => (prev - 1 + treatmentHistory.length) % treatmentHistory.length)}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer shadow-sm"
+                      >
+                        ‹
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => setTreatmentIndex(prev => (prev + 1) % treatmentHistory.length)}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer shadow-sm"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {treatmentHistory.length > 0 ? (() => {
+                  const record = treatmentHistory[treatmentIndex % treatmentHistory.length];
+                  return (
+                    <div key={record._id || record.id || treatmentIndex} className="bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 border-b border-slate-200/60 pb-3">
                         <div className="flex items-center gap-2.5">
                           <span className="bg-slate-950 text-amber-400 text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide shadow-sm">
@@ -328,7 +412,7 @@ const MedicalRecord = ({ user, setUser }) => {
                           ? 'bg-amber-50 border-amber-200 border-dashed' 
                           : 'bg-blue-50/50 border-blue-200'
                       }`}>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1 items-center gap-1.5">
                           🩺 Official Doctor's Diagnosis
                         </span>
                         <p className={`text-xs font-medium leading-relaxed ${
@@ -342,7 +426,12 @@ const MedicalRecord = ({ user, setUser }) => {
                         </p>
                       </div>
                     </div>
-                )) : <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl">No clinical records found yet.</div>}
+                  );
+                })() : (
+                  <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl">
+                    No clinical records found yet.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -354,7 +443,7 @@ const MedicalRecord = ({ user, setUser }) => {
       <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end">
         
         {isChatOpen && (
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl mb-4 overflow-hidden flex flex-col w-[350px] h-[500px] animate-fadeIn transition-all">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl mb-4 overflow-hidden flex flex-col w-87.5 h-125 animate-fadeIn transition-all">
             
             <div className="bg-slate-950 p-4 flex justify-between items-center">
               <div>
@@ -371,7 +460,7 @@ const MedicalRecord = ({ user, setUser }) => {
               </div>
               <button 
                 onClick={() => setIsChatOpen(false)} 
-                className="text-slate-400 hover:text-white transition-colors p-1"
+                className="text-slate-400 hover:text-white transition-colors p-1 cursor-pointer"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
@@ -405,9 +494,9 @@ const MedicalRecord = ({ user, setUser }) => {
                 <button 
                   type="submit" 
                   disabled={!newMessage.trim()}
-                  className="w-10 h-10 bg-[#D4AF37] disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl flex items-center justify-center transition-colors"
+                  className="w-10 h-10 bg-[#D4AF37] disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                 >
-                  <svg className="w-4 h-4 translate-x-[1px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                  <svg className="w-4 h-4 translate-x-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                 </button>
               </div>
             </form>
@@ -416,7 +505,7 @@ const MedicalRecord = ({ user, setUser }) => {
 
         <button 
           onClick={() => setIsChatOpen(!isChatOpen)}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 ${isChatOpen ? 'bg-slate-800 text-white' : 'bg-[#D4AF37] hover:bg-amber-500 text-white'}`}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 cursor-pointer ${isChatOpen ? 'bg-slate-800 text-white' : 'bg-[#D4AF37] hover:bg-amber-500 text-white'}`}
         >
           {isChatOpen ? (
              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>

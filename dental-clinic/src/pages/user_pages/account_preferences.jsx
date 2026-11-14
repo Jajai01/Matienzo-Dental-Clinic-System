@@ -85,6 +85,10 @@ const AccountPreference = ({ user, setUser }) => {
       console.log("💾 Save response:", res.data);
       
       if (res.data.success) {
+        // 🔑 FIXED: Update state with server response so local state matches backend permanently
+        if (res.data.preferences) {
+          setPreferences(res.data.preferences);
+        }
         toast.success("Preferences updated successfully!", { style: { border: '1px solid #10b981' }});
       }
     } catch (error) {
@@ -279,13 +283,14 @@ const AccountPreference = ({ user, setUser }) => {
     }
   };
 
-  const ToggleSwitch = ({ isOn, onClick }) => (
+  const ToggleSwitch = ({ isOn, onClick, disabled = false }) => (
     <button
       type="button"
-      onClick={onClick}
-      className={`w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer shadow-inner ${
-        isOn ? 'bg-emerald-500' : 'bg-slate-300'
-      }`}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+        disabled ? 'opacity-50 cursor-not-allowed bg-slate-300' : 'cursor-pointer shadow-inner'
+      } ${!disabled && (isOn ? 'bg-emerald-500' : 'bg-slate-300')}`}
     >
       <span className={`block w-4 h-4 bg-white rounded-full transition-transform absolute top-1 shadow-sm ${isOn ? 'translate-x-7' : 'translate-x-1'}`} />
     </button>
@@ -355,15 +360,17 @@ const AccountPreference = ({ user, setUser }) => {
                       Change Password
                     </button>
                   </div>
-                  <div className="flex items-center justify-between p-5 bg-slate-50 border border-slate-200 rounded-2xl">
+                  
+                  {/* 🔑 FIXED (Bug #13): Two-Factor Authentication marked as not available */}
+                  <div className="flex items-center justify-between p-5 bg-slate-50 border border-slate-200 rounded-2xl opacity-80">
                     <div>
                       <div className="flex items-center gap-2 mb-0.5">
                         <h4 className="text-sm font-bold text-slate-900">Two-Factor Authentication (2FA)</h4>
-                        <span className="text-[9px] font-bold uppercase tracking-widest bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md">Recommended</span>
+                        <span className="text-[9px] font-bold uppercase tracking-widest bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">Currently Unavailable</span>
                       </div>
-                      <p className="text-xs text-slate-500 font-medium">Require a security code sent to your email when logging in from a new device.</p>
+                      <p className="text-xs text-slate-500 font-medium">Require a security code sent to your email when logging in. (Not available in this release)</p>
                     </div>
-                    <ToggleSwitch isOn={preferences.twoFactorAuth} onClick={() => handleToggle('twoFactorAuth')} />
+                    <ToggleSwitch isOn={false} disabled={true} onClick={() => {}} />
                   </div>
                 </div>
               </div>
@@ -399,7 +406,7 @@ const AccountPreference = ({ user, setUser }) => {
 
               {/* SUBMIT ACTION ROW */}
               <div className="flex justify-end gap-4 pt-4 border-t border-slate-200">
-                <button type="button" className="px-6 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all text-slate-600 hover:bg-slate-100 cursor-pointer">
+                <button type="button" onClick={() => window.location.reload()} className="px-6 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all text-slate-600 hover:bg-slate-100 cursor-pointer">
                   Discard Changes
                 </button>
                 <button type="submit" disabled={isSaving} className="bg-slate-950 text-[#D4AF37] hover:bg-slate-800 disabled:opacity-70 disabled:cursor-not-allowed px-8 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all shadow-sm cursor-pointer">

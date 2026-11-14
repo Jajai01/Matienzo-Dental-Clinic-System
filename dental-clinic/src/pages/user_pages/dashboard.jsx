@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios'; // 🔑 ADDED: For fetching live announcements
+import axios from 'axios';
 import ConsoleSidebar from '../sidebar';
 
 const Dashboard = ({ user, setUser }) => {
-  // 🔑 NEW: Dynamic Announcements State
+  // 🔑 Dynamic Announcements State
   const [announcements, setAnnouncements] = useState([]);
 
-  // 🔑 NEW: Fetch Announcements on load
+  // 🔑 Fetch Announcements on load
   useEffect(() => {
     const fetchAnnouncements = async () => {
       try {
@@ -47,6 +47,12 @@ const Dashboard = ({ user, setUser }) => {
 
   const managementServices = [
     {
+      title: "Receipts",
+      desc: "View and download your digital payment receipts and transaction records.",
+      path: `/user/receipts`,
+      actionText: "View receipts"
+    },
+    {
       title: "Profile Settings",
       desc: "Update your contact information, phone number, address details, and manage companion or dependent child dental records.",
       path: `/user/profile-settings/${user?.patientId}`,
@@ -84,7 +90,7 @@ const Dashboard = ({ user, setUser }) => {
             </p>
           </div>
 
-          {/* 📢 UPDATED: DYNAMIC ANNOUNCEMENT BANNER(S) */}
+          {/* 📢 DYNAMIC ANNOUNCEMENT BANNER(S) */}
           {announcements.length > 0 && (
             <div className="mb-10 space-y-4">
               {announcements.map((ann) => (
