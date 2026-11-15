@@ -85,15 +85,16 @@ const AccountPreference = ({ user, setUser }) => {
       console.log("💾 Save response:", res.data);
       
       if (res.data.success) {
-        // 🔑 FIXED: Update state with server response so local state matches backend permanently
         if (res.data.preferences) {
           setPreferences(res.data.preferences);
         }
-        toast.success("Preferences updated successfully!", { style: { border: '1px solid #10b981' }});
+        toast.success("Preferences saved successfully!", { style: { border: '1px solid #10b981' }});
+      } else {
+        toast.error("Failed to save preferences. Please try again.");
       }
     } catch (error) {
       console.error("❌ Save preferences error:", error);
-      toast.error("Failed to save preferences.");
+      toast.error(error.response?.data?.message || "Failed to save preferences due to a server error.");
     } finally {
       setIsSaving(false);
     }
@@ -361,7 +362,6 @@ const AccountPreference = ({ user, setUser }) => {
                     </button>
                   </div>
                   
-                  {/* 🔑 FIXED (Bug #13): Two-Factor Authentication marked as not available */}
                   <div className="flex items-center justify-between p-5 bg-slate-50 border border-slate-200 rounded-2xl opacity-80">
                     <div>
                       <div className="flex items-center gap-2 mb-0.5">
@@ -439,7 +439,7 @@ const AccountPreference = ({ user, setUser }) => {
                     onChange={(e) => setPasswordForm({...passwordForm, current: e.target.value})}
                     className="w-full border border-slate-300 rounded-xl px-4 py-3 pr-10 text-sm bg-slate-50/50 focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] transition-all font-medium"
                   />
-                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
                     {showCurrent ? "🙈" : "👁️"}
                   </button>
                 </div>
@@ -456,7 +456,7 @@ const AccountPreference = ({ user, setUser }) => {
                     onChange={(e) => setPasswordForm({...passwordForm, new: e.target.value})}
                     className="w-full border border-slate-300 rounded-xl px-4 py-3 pr-10 text-sm bg-slate-50/50 focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] transition-all font-medium"
                   />
-                  <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
                     {showNew ? "🙈" : "👁️"}
                   </button>
                 </div>
@@ -473,7 +473,7 @@ const AccountPreference = ({ user, setUser }) => {
                     onChange={(e) => setPasswordForm({...passwordForm, confirm: e.target.value})}
                     className="w-full border border-slate-300 rounded-xl px-4 py-3 pr-10 text-sm bg-slate-50/50 focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] transition-all font-medium"
                   />
-                  <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
                     {showConfirm ? "🙈" : "👁️"}
                   </button>
                 </div>

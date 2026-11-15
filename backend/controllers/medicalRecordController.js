@@ -18,6 +18,9 @@ const __dirname = path.dirname(__filename);
 const createTransporter = () => {
   return nodemailer.createTransport({
     service: 'gmail',
+    port: 465,
+    secure: true, // true for port 465
+    family: 4,
     auth: {
       user: 'matienzo.dentalclinic@gmail.com',
       pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''
@@ -193,7 +196,7 @@ export const updateDiagnosis = async (req, res) => {
     const record = await MedicalRecord.findOneAndUpdate(
       { ...recordQuery, "history.id": historyId },
       { $set: { "history.$.diagnosis": diagnosis } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!record) {
@@ -209,7 +212,7 @@ export const updateDiagnosis = async (req, res) => {
 export const addPrescription = async (req, res) => {
   try {
     const { patientId } = req.params;
-    const { medicine, dosage, quantity, status, frequency, duration, notes } = req.body;
+    const { medicine, dosage, quantity, status, frequency, duration, notes, expiryDate } = req.body; // 🔑 Added expiryDate
 
     const prescriptionId = `RX-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const issueDate = new Date().toISOString();
@@ -268,6 +271,7 @@ export const addPrescription = async (req, res) => {
       if (frequency) doc.text(`    Frequency: ${frequency}`);
       if (duration) doc.text(`    Duration: ${duration}`);
       if (quantity) doc.text(`    Quantity: ${quantity}`);
+      if (expiryDate) doc.text(`    Valid Until (Expiry): ${expiryDate}`);
       if (notes) doc.text(`    Instructions / Sig: ${notes}`);
       doc.moveDown(0.8);
 
@@ -315,6 +319,7 @@ export const addPrescription = async (req, res) => {
       duration: duration || '',      
       notes: notes || '',            
       quantity: quantity || '',
+      expiryDate: expiryDate || '', // 🔑 Saved to MongoDB record
       status: status || 'Active',
       pdfUrl
     };
@@ -350,6 +355,7 @@ export const addPrescription = async (req, res) => {
                 <p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Dosage:</strong> ${dosage}</p>
                 ${frequency ? `<p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Frequency:</strong> ${frequency}</p>` : ''}
                 ${duration ? `<p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Duration:</strong> ${duration}</p>` : ''}
+                ${expiryDate ? `<p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Expiry Date:</strong> ${expiryDate}</p>` : ''}
                 ${notes ? `<p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Instructions:</strong> ${notes}</p>` : ''}
                 <p style="margin: 10px 0 0 0;"><a href="${pdfUrl}" target="_blank" style="color: #3b82f6; font-weight: bold; text-decoration: underline;">🔗 Download Prescription PDF</a></p>
               </div>

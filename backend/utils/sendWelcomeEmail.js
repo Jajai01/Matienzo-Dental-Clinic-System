@@ -5,6 +5,9 @@ const sendWelcomeEmail = async (userEmail, userName, patientId) => {
     // 1. Create a transporter using Gmail SMTP
     const transporter = nodemailer.createTransport({
       service: 'gmail',
+      secure: true,
+      port: 465, // true for port 465
+      family: 4,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,

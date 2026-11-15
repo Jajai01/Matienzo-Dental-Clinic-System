@@ -35,7 +35,7 @@ export const getDoctorStatus = async (req, res) => {
       await DoctorStatus.findOneAndUpdate(
         { systemId: 'matienzo-admin' }, 
         { isOnline: req.body.isActive },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
       
       return res.status(200).json({ returnDocument: 'after', isActive: req.body.isActive });

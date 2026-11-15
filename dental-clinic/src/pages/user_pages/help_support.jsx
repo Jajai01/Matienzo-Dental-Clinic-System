@@ -83,7 +83,12 @@ const HelpSupport = ({ user, setUser }) => {
         message: ticketForm.message
       };
 
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/tickets`, payload);
+      // 🔑 Added an 8-second timeout so the button never gets stuck loading forever
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/api/tickets`, 
+        payload,
+        { timeout: 8000 }
+      );
 
       if (response.status === 201 || response.status === 200) {
         setTicketSent(true);
@@ -93,7 +98,10 @@ const HelpSupport = ({ user, setUser }) => {
       }
     } catch (error) {
       console.error("Error sending ticket:", error);
-      alert(error.response?.data?.message || "Failed to send message. Please check your connection and try again.");
+      const errorMsg = error.code === 'ECONNABORTED' 
+        ? "Request timed out. The server took too long to respond." 
+        : (error.response?.data?.message || "Failed to send message. Please check your connection and try again.");
+      alert(errorMsg);
     } finally {
       setIsSubmitting(false);
     }

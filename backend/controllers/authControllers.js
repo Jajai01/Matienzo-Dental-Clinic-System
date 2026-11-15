@@ -11,8 +11,10 @@ import nodemailer from 'nodemailer';
 // 🔑 FIX: Updated to Port 587 and used process.env variables to bypass Google blocks
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
+  port: 465,
+  secure: true,
+   // true for port 465
+  family: 4,
   requireTLS: true,
   auth: {
     user: process.env.EMAIL_USER,
@@ -255,8 +257,9 @@ export const forgotPassword = async (req, res) => {
 
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
+      port: 465,
+      secure: true,
+      family: 4,
       requireTLS: true,
       auth: {
         user: process.env.EMAIL_USER,

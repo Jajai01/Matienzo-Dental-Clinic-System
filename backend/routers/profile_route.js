@@ -10,7 +10,7 @@ import {
 
 const router = express.Router();
 
-// 🔑 1. ALL SPECIFIC ROUTES MUST COME FIRST
+// 🔑 1. ALL SPECIFIC ROUTES COME FIRST
 router.get('/:patientId/export', getPatientExportData);
 router.get('/:id/preferences', getPreferences);
 router.put('/:id/preferences', updatePreferences);

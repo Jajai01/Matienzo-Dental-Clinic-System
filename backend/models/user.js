@@ -31,8 +31,17 @@ const userSchema = new mongoose.Schema({
   },
   // 🔑 Fields for Password Reset
   resetPasswordToken: { type: String },
-  resetPasswordExpire: { type: Date }
-});
+  resetPasswordExpire: { type: Date },
+
+  preferences: {
+    notifyEmail: { type: Boolean, default: true },
+    notifyMarketing: { type: Boolean, default: false },
+    twoFactorAuth: { type: Boolean, default: false },
+    allowClinicalResearch: { type: Boolean, default: true }
+  }
+}, { timestamps: true });
+
+
 
 // 🔑 Attached the pre-save hook BEFORE compiling the model
 userSchema.pre('save', async function () {

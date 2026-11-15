@@ -15,7 +15,8 @@ const medicalSchema = new mongoose.Schema({
     date: String,
     medicine: String,
     dosage: String,
-    status: String
+    status: String,
+    expiryDate: String // 🔑 Added expiration date field
   }],
   photos: [{
     url: String,

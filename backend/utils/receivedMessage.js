@@ -17,6 +17,8 @@ router.post('/', async (req, res) => {
     // 1. Explicit SMTP Configuration (More reliable than service: 'gmail')
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
+      secure: true, // true for port 465
+      family: 4,
       port: 465,
       secure: true,
       auth: {

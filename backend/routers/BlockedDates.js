@@ -9,6 +9,9 @@ const router = express.Router();
 const createTransporter = () => {
   return nodemailer.createTransport({
     service: 'gmail',
+    port: 465,
+    secure: true, // true for port 465
+    family: 4,
     auth: {
       user: 'matienzo.dentalclinic@gmail.com',
       pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''

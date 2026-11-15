@@ -8,13 +8,13 @@ const Prescription = ({ admin, setAdmin }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPatient, setSelectedPatient] = useState(null);
   
-  // MULTIPLE MEDICINES FORM STATE
+  // MULTIPLE MEDICINES FORM STATE WITH EXPIRY DATE
   const [medicinesList, setMedicinesList] = useState([
-    { medicine: '', dosage: '', quantity: '' }
+    { medicine: '', dosage: '', quantity: '', expiryDate: '' }
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Custom Feedback Modal State (Replaces native browser alert)
+  // Custom Feedback Modal State
   const [feedbackModal, setFeedbackModal] = useState({ show: false, title: '', message: '', isError: false });
 
   // Fetch patients on load
@@ -47,7 +47,7 @@ const Prescription = ({ admin, setAdmin }) => {
   };
 
   const handleAddMedicineRow = () => {
-    setMedicinesList([...medicinesList, { medicine: '', dosage: '', quantity: '' }]);
+    setMedicinesList([...medicinesList, { medicine: '', dosage: '', quantity: '', expiryDate: '' }]);
   };
 
   const handleRemoveMedicineRow = (index) => {
@@ -56,7 +56,7 @@ const Prescription = ({ admin, setAdmin }) => {
     setMedicinesList(list);
   };
 
-  // 📄 MULTI-ITEM A5 PDF GENERATOR
+  // 📄 MULTI-ITEM A5 PDF GENERATOR WITH EXPIRY
   const generatePDF = (patientName) => {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -108,7 +108,7 @@ const Prescription = ({ admin, setAdmin }) => {
     // --- DYNAMIC PRESCRIPTION LIST LOOP ---
     let startY = 88;
     medicinesList.forEach((item, index) => {
-      if (startY > 160) {
+      if (startY > 155) {
         doc.addPage();
         startY = 20;
       }
@@ -121,12 +121,16 @@ const Prescription = ({ admin, setAdmin }) => {
       doc.setFontSize(9.5);
       doc.text(`Sig: ${item.dosage}`, 27, startY + 5);
 
+      let lineOffset = 10;
       if (item.quantity) {
-        doc.text(`Qty: #${item.quantity}`, 27, startY + 10);
-        startY += 16;
-      } else {
-        startY += 12;
+        doc.text(`Qty: #${item.quantity}`, 27, startY + lineOffset);
+        lineOffset += 5;
       }
+      if (item.expiryDate) {
+        doc.text(`Valid Until: ${item.expiryDate}`, 27, startY + lineOffset);
+        lineOffset += 5;
+      }
+      startY += lineOffset + 3;
     });
 
     // --- FOOTER & SIGNATURE ---
@@ -142,7 +146,8 @@ const Prescription = ({ admin, setAdmin }) => {
     doc.save(`Prescription_${patientName.replace(/\s+/g, '_')}_${Date.now()}.pdf`);
   };
 
-  const handleSubmit = async (e) => {
+  // 💾 SAVE TO DATABASE HANDLER
+  const handleSaveToDatabase = async (e) => {
     e.preventDefault();
     if (!selectedPatient) {
       setFeedbackModal({ show: true, title: 'Patient Required', message: 'Please select a patient from the list first.', isError: true });
@@ -160,23 +165,20 @@ const Prescription = ({ admin, setAdmin }) => {
     const patientIdentifier = selectedPatient.patientId || selectedPatient._id;
 
     try {
-      // Loop and save each prescription to the database
       for (const item of medicinesList) {
         await axios.post(`${import.meta.env.VITE_API_URL}/api/medical-records/${patientIdentifier}/prescription`, {
           medicine: item.medicine,
           dosage: item.dosage,
           quantity: item.quantity || '',
+          expiryDate: item.expiryDate || '',
           status: 'Active'
         });
       }
 
-      generatePDF(selectedPatient.patientName);
-      
-      setMedicinesList([{ medicine: '', dosage: '', quantity: '' }]);
       setFeedbackModal({
         show: true,
-        title: 'Success!',
-        message: 'Prescriptions successfully saved to records and official A5 PDF downloaded.',
+        title: 'Successfully Saved!',
+        message: 'Prescriptions have been securely saved to the patient console.',
         isError: false
       });
 
@@ -191,6 +193,21 @@ const Prescription = ({ admin, setAdmin }) => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // 📄 DOWNLOAD PDF HANDLER
+  const handleDownloadPDF = () => {
+    if (!selectedPatient) {
+      setFeedbackModal({ show: true, title: 'Patient Required', message: 'Please select a patient before downloading the PDF.', isError: true });
+      return;
+    }
+    for (let i = 0; i < medicinesList.length; i++) {
+      if (!medicinesList[i].medicine || !medicinesList[i].dosage) {
+        setFeedbackModal({ show: true, title: 'Missing Fields', message: `Please fill out medicine and dosage for item #${i + 1} before generating PDF.`, isError: true });
+        return;
+      }
+    }
+    generatePDF(selectedPatient.patientName);
   };
 
   return (
@@ -227,7 +244,7 @@ const Prescription = ({ admin, setAdmin }) => {
                   <button
                     key={patient.patientId || patient._id}
                     onClick={() => setSelectedPatient(patient)}
-                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col ${
+                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col cursor-pointer ${
                       (selectedPatient?.patientId || selectedPatient?._id) === (patient.patientId || patient._id) 
                         ? 'border-blue-600 bg-blue-50 shadow-sm' 
                         : 'border-slate-100 bg-white hover:border-slate-300'
@@ -267,7 +284,7 @@ const Prescription = ({ admin, setAdmin }) => {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-6">
                 <div className="space-y-4 max-h-87.5 overflow-y-auto pr-2">
                   {medicinesList.map((item, index) => (
                     <div key={index} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl relative space-y-3">
@@ -277,7 +294,7 @@ const Prescription = ({ admin, setAdmin }) => {
                           <button
                             type="button"
                             onClick={() => handleRemoveMedicineRow(index)}
-                            className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 bg-red-50 rounded-lg border border-red-200 transition-all"
+                            className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 bg-red-50 rounded-lg border border-red-200 transition-all cursor-pointer"
                           >
                             Remove 🗑️
                           </button>
@@ -312,17 +329,30 @@ const Prescription = ({ admin, setAdmin }) => {
                         />
                       </div>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Quantity (Optional)</label>
-                        <input 
-                          type="number" 
-                          name="quantity"
-                          value={item.quantity} 
-                          onChange={(e) => handleMedicineChange(index, e)}
-                          disabled={!selectedPatient}
-                          placeholder="e.g., 21"
-                          className="w-full sm:w-1/3 border-2 border-slate-200 rounded-xl p-2.5 text-sm font-medium focus:border-blue-600 focus:ring-0 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed bg-white"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Quantity (Optional)</label>
+                          <input 
+                            type="number" 
+                            name="quantity"
+                            value={item.quantity} 
+                            onChange={(e) => handleMedicineChange(index, e)}
+                            disabled={!selectedPatient}
+                            placeholder="e.g., 21"
+                            className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm font-medium focus:border-blue-600 focus:ring-0 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Expiration Date (Optional)</label>
+                          <input 
+                            type="date" 
+                            name="expiryDate"
+                            value={item.expiryDate} 
+                            onChange={(e) => handleMedicineChange(index, e)}
+                            disabled={!selectedPatient}
+                            className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm font-medium focus:border-blue-600 focus:ring-0 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed bg-white cursor-pointer"
+                          />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -332,31 +362,44 @@ const Prescription = ({ admin, setAdmin }) => {
                   type="button"
                   onClick={handleAddMedicineRow}
                   disabled={!selectedPatient}
-                  className="w-full py-2.5 border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 text-blue-700 font-bold text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-2.5 border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 text-blue-700 font-bold text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   + Add Another Medicine
                 </button>
 
-                <div className="pt-4 border-t border-slate-100">
+                {/* SEPARATED ACTION BUTTONS */}
+                <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button 
-                    type="submit" 
+                    type="button"
+                    onClick={handleSaveToDatabase}
                     disabled={isSubmitting || !selectedPatient}
-                    className="w-full bg-slate-950 hover:bg-slate-800 text-amber-400 font-bold py-3.5 px-8 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 tracking-wide"
+                    className="w-full bg-slate-950 hover:bg-slate-800 text-amber-400 font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs tracking-wide uppercase cursor-pointer"
                   >
                     {isSubmitting ? (
-                      <span className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></span>
+                      <span className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></span>
                     ) : (
                       <>
-                        <span>Save & Download A5 PDF</span>
-                        <span>📄</span>
+                        <span>Save to Records</span>
+                        <span>💾</span>
                       </>
                     )}
                   </button>
-                  <p className="text-center text-[10px] text-slate-400 mt-3 font-medium">
-                    This action securely records all prescriptions to the patient's console and generates an official multi-item PDF.
-                  </p>
+
+                  <button 
+                    type="button"
+                    onClick={handleDownloadPDF}
+                    disabled={!selectedPatient}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs tracking-wide uppercase cursor-pointer"
+                  >
+                    <span>Download A5 PDF</span>
+                    <span>📄</span>
+                  </button>
                 </div>
-              </form>
+                
+                <p className="text-center text-[10px] text-slate-400 mt-2 font-medium">
+                  You can save the prescription to the patient console and download the official PDF separately.
+                </p>
+              </div>
 
             </div>
           </div>
@@ -364,7 +407,7 @@ const Prescription = ({ admin, setAdmin }) => {
         </div>
       </main>
 
-      {/* Custom Feedback Modal (Replaces browser alert) */}
+      {/* Custom Feedback Modal */}
       {feedbackModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-fadeIn p-4">
           <div className="bg-white p-6 rounded-3xl shadow-xl w-full max-w-sm text-center">
@@ -376,7 +419,7 @@ const Prescription = ({ admin, setAdmin }) => {
             <button 
               type="button" 
               onClick={() => setFeedbackModal({ show: false, title: '', message: '', isError: false })} 
-              className="w-full bg-slate-900 text-white text-xs font-bold py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm"
+              className="w-full bg-slate-900 text-white text-xs font-bold py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
             >
               Okay
             </button>

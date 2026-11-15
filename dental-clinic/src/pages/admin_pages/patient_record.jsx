@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import AdminSidebar from '../adminsidebar';
+import { toast, Toaster } from 'react-hot-toast';
 
 const AdminRecords = ({ admin, setAdmin }) => {
   const [records, setRecords] = useState([]);
@@ -26,7 +27,6 @@ const AdminRecords = ({ admin, setAdmin }) => {
     const dateObj = new Date(dateString);
     if (isNaN(dateObj.getTime())) return dateString;
 
-    // If it's a simple YYYY-MM-DD string, parse parts to avoid timezone offset mismatches
     if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim())) {
       const [year, month, day] = dateString.split('-').map(Number);
       const localDate = new Date(year, month - 1, day);
@@ -34,6 +34,19 @@ const AdminRecords = ({ admin, setAdmin }) => {
     }
 
     return dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  // 🔑 Helper to fix localhost vs production image URLs
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    // If it's already an external storage URL (e.g. Cloudinary/S3), return as-is
+    if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+      return url;
+    }
+    // Strip localhost domain if present and attach active VITE_API_URL
+    const cleanedPath = url.replace(/^https?:\/\/[^/]+/, '');
+    const baseUrl = import.meta.env.VITE_API_URL || '';
+    return `${baseUrl}${cleanedPath.startsWith('/') ? '' : '/'}${cleanedPath}`;
   };
 
   // Fetch all medical records on page load
@@ -46,6 +59,7 @@ const AdminRecords = ({ admin, setAdmin }) => {
         }
       } catch (error) {
         console.error("Failed to fetch medical records:", error);
+        toast.error("Failed to load patient records.");
       } finally {
         setIsLoading(false);
       }
@@ -75,7 +89,7 @@ const AdminRecords = ({ admin, setAdmin }) => {
     const aLatest = aDates.length > 0 ? Math.max(...aDates) : 0;
     const bLatest = bDates.length > 0 ? Math.max(...bDates) : 0;
     
-    return bLatest - aLatest; // Descending order
+    return bLatest - aLatest; 
   });
 
   // 3. PAGINATION MATH
@@ -99,7 +113,10 @@ const AdminRecords = ({ admin, setAdmin }) => {
   };
 
   const handleSaveNote = async (historyId) => {
-    if (!draftDiagnosis.trim()) return;
+    if (!draftDiagnosis.trim()) {
+      toast.error("Diagnosis note cannot be empty.");
+      return;
+    }
     setIsSavingNote(true);
 
     try {
@@ -120,18 +137,19 @@ const AdminRecords = ({ admin, setAdmin }) => {
         ));
 
         setEditingHistoryId(null);
+        toast.success("Clinical note updated successfully!");
       }
     } catch (error) {
       console.error("Failed to save note:", error);
-      alert("Error saving the clinical note. Check the server.");
+      toast.error(error.response?.data?.message || "Error saving the clinical note.");
     } finally {
       setIsSavingNote(false);
     }
   };
 
   return (
-    <div className="flex w-full min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
-      
+    <div className="flex w-full min-h-screen bg-slate-50 text-slate-900 antialiased font-sans relative">
+      <Toaster position="top-right" />
       <AdminSidebar admin={admin} setAdmin={setAdmin} />
       
       <main className="flex-1 pt-12.5 pr-8 pb-8 pl-25 min-h-screen">
@@ -150,7 +168,7 @@ const AdminRecords = ({ admin, setAdmin }) => {
                   placeholder="Search by Name or ID..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full border-2 border-slate-200 rounded-xl py-2 px-4 text-sm font-medium focus:border-blue-600 focus:ring-0 outline-none transition-all pr-10"
+                  className="w-full border-2 border-slate-200 rounded-xl py-2 px-4 text-sm font-medium focus:border-blue-600 focus:ring-0 outline-none transition-all pr-10 bg-white"
                 />
                 <span className="absolute right-3 top-2.5 text-slate-400">🔍</span>
               </div>
@@ -283,7 +301,6 @@ const AdminRecords = ({ admin, setAdmin }) => {
                     <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                         <div className="flex items-center gap-3">
-                          {/* 🔑 Formatted Visit Date */}
                           <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider">
                             {formatDate(visit.date)}
                           </span>
@@ -339,7 +356,7 @@ const AdminRecords = ({ admin, setAdmin }) => {
                             value={draftDiagnosis}
                             onChange={(e) => setDraftDiagnosis(e.target.value)}
                             placeholder="Type the official clinical diagnosis here..."
-                            className="w-full text-sm p-2.5 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 resize-none font-medium text-slate-800"
+                            className="w-full text-sm p-2.5 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 resize-none font-medium text-slate-800 bg-white"
                           />
                         ) : (
                           <p className={`text-sm font-medium leading-relaxed ${visit.diagnosis === "Pending Notes" ? 'text-amber-600 italic' : 'text-slate-700'}`}>
@@ -379,7 +396,7 @@ const AdminRecords = ({ admin, setAdmin }) => {
                 </div>
               )}
 
-              {/* PATIENT UPLOADED PHOTOS MODULE */}
+              {/* PATIENT UPLOADED PHOTOS MODULE WITH FIXED LOCALHOST URLS */}
               <div className="mt-10">
                 <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
                   <span>📸</span> Patient Uploaded Photos & Images
@@ -387,30 +404,33 @@ const AdminRecords = ({ admin, setAdmin }) => {
                 
                 {selectedPatient.photos && selectedPatient.photos.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {selectedPatient.photos.map((photo, index) => (
-                      <div key={index} className="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col gap-2 shadow-sm">
-                        <a href={photo.url || photo} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-slate-100">
-                          <img 
-                            src={photo.url || photo} 
-                            alt="Patient uploaded medical document" 
-                            className="w-full h-32 object-cover hover:scale-105 transition-transform duration-300"
-                          />
-                        </a>
-                        <div className="flex justify-between items-center px-1">
-                          <span className="text-[10px] text-slate-400 font-bold">
-                            {photo.date ? formatDate(photo.date) : 'Uploaded Image'}
-                          </span>
-                          <a 
-                            href={photo.url || photo} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="text-[10px] font-bold text-blue-600 hover:underline"
-                          >
-                            View Full
+                    {selectedPatient.photos.map((photo, index) => {
+                      const resolvedUrl = getImageUrl(photo.url || photo);
+                      return (
+                        <div key={index} className="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col gap-2 shadow-sm">
+                          <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-slate-100">
+                            <img 
+                              src={resolvedUrl} 
+                              alt="Patient uploaded medical document" 
+                              className="w-full h-32 object-cover hover:scale-105 transition-transform duration-300"
+                            />
                           </a>
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-[10px] text-slate-400 font-bold">
+                              {photo.date ? formatDate(photo.date) : 'Uploaded Image'}
+                            </span>
+                            <a 
+                              href={resolvedUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-[10px] font-bold text-blue-600 hover:underline"
+                            >
+                              View Full
+                            </a>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl bg-white">

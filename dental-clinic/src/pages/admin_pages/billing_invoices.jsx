@@ -49,12 +49,15 @@ const BillingInvoices = ({ admin, setAdmin }) => {
     calculatedDiscountInPesos = rawDiscount;
   }
 
-  // Prevent negative totals if they accidentally discount more than the price
+  // Prevent negative totals
   const finalTotal = Math.max(0, basePrice - calculatedDiscountInPesos);
 
   // 1. SAVE BASE AMOUNT ONLY (Draft state)
   const handleSaveAmount = async () => {
-    if (!selectedTransaction || basePrice <= 0) return;
+    if (!selectedTransaction || basePrice <= 0) {
+      toast.error("Please enter a valid base amount.");
+      return;
+    }
     setIsSaving(true);
     try {
       await axios.patch(`${import.meta.env.VITE_API_URL}/api/appointments/${selectedTransaction._id}/billing`, {
@@ -66,7 +69,6 @@ const BillingInvoices = ({ admin, setAdmin }) => {
       ));
       
       setSelectedTransaction({ ...selectedTransaction, billingAmount: basePrice });
-      
       toast.success("Base billing amount saved.");
     } catch (error) {
       toast.error("Failed to save billing data");
@@ -78,7 +80,7 @@ const BillingInvoices = ({ admin, setAdmin }) => {
   // 2. MARK AS PAID (Finalize with discounts and references)
   const handleMarkPaid = async () => {
     if (basePrice <= 0) {
-      toast.error("Base price must be saved before processing payment.");
+      toast.error("Base price must be greater than zero before processing payment.");
       return;
     }
 
@@ -93,7 +95,8 @@ const BillingInvoices = ({ admin, setAdmin }) => {
         paymentDate: new Date()
       };
 
-      await axios.patch(`${import.meta.env.VITE_API_URL}/${selectedTransaction._id}/pay`, payload);
+      // 🔑 Fixed API route to include /api/appointments/
+      await axios.patch(`${import.meta.env.VITE_API_URL}/api/appointments/${selectedTransaction._id}/pay`, payload);
       
       fetchAppointments();
       setSelectedTransaction(null);
@@ -104,7 +107,7 @@ const BillingInvoices = ({ admin, setAdmin }) => {
       toast.success("Payment verified and receipt generated!");
     } catch (error) {
       console.error("Payment Error:", error); 
-      toast.error("Error updating status");
+      toast.error(error.response?.data?.message || "Error updating payment status");
     } finally {
       setIsPaying(false);
     }
@@ -159,7 +162,7 @@ const BillingInvoices = ({ admin, setAdmin }) => {
                     setDiscountValue('');
                     setPaymentReference('');
                   }}
-                  className={`w-full p-4 rounded-xl border transition-all text-left ${selectedTransaction?._id === t._id ? 'border-slate-800 bg-slate-50 shadow-sm' : 'border-slate-100 hover:border-slate-300'}`}
+                  className={`w-full p-4 rounded-xl border transition-all text-left cursor-pointer ${selectedTransaction?._id === t._id ? 'border-slate-800 bg-slate-50 shadow-sm' : 'border-slate-100 hover:border-slate-300'}`}
                 >
                   <div className="font-bold text-sm text-slate-900">{t.patientName}</div>
                   <div className="text-[10px] text-slate-400 font-mono mt-1">{t.referenceCode} • {t.service}</div>
@@ -200,7 +203,7 @@ const BillingInvoices = ({ admin, setAdmin }) => {
                     <select 
                       value={discountType}
                       onChange={(e) => setDiscountType(e.target.value)}
-                      className="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-[#D4AF37] focus:outline-none"
+                      className="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-[#D4AF37] focus:outline-none cursor-pointer"
                     >
                       <option value="fixed">Fixed (₱)</option>
                       <option value="percent">Percent (%)</option>
@@ -238,7 +241,7 @@ const BillingInvoices = ({ admin, setAdmin }) => {
                   </div>
                   <div className="flex justify-between text-emerald-400 text-xs font-bold uppercase tracking-wider border-b border-slate-800 pb-4">
                     <span>Discount {discountType === 'percent' && rawDiscount > 0 ? `(${rawDiscount}%)` : ''}</span>
-                    <span>- {formatCurrency(calculatedDiscountInPesos)}</span>
+                    <span>{formatCurrency(calculatedDiscountInPesos)}</span>
                   </div>
                   <div className="flex justify-between text-white text-xl font-black pt-2">
                     <span>Total Due</span>
@@ -251,20 +254,18 @@ const BillingInvoices = ({ admin, setAdmin }) => {
                   <button 
                     onClick={handleSaveAmount} 
                     disabled={isSaving}
-                    className="w-full bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all text-xs uppercase tracking-wider"
+                    className="w-full bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all text-xs uppercase tracking-wider cursor-pointer disabled:opacity-50"
                   >
                     {isSaving ? 'Saving...' : 'Save Draft Base Amount'}
                   </button>
                   
-                  {selectedTransaction.billingAmount && (
-                    <button 
-                      onClick={handleMarkPaid} 
-                      disabled={isPaying}
-                      className="w-full bg-emerald-600 text-white font-black py-4 rounded-xl hover:bg-emerald-700 transition-all shadow-lg text-sm uppercase tracking-widest"
-                    >
-                      {isPaying ? 'Processing...' : 'CONFIRM PAYMENT & FINALIZE'}
-                    </button>
-                  )}
+                  <button 
+                    onClick={handleMarkPaid} 
+                    disabled={isPaying || basePrice <= 0}
+                    className="w-full bg-emerald-600 text-white font-black py-4 rounded-xl hover:bg-emerald-700 transition-all shadow-lg text-sm uppercase tracking-widest cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isPaying ? 'Processing...' : 'CONFIRM PAYMENT & FINALIZE'}
+                  </button>
                 </div>
 
               </div>

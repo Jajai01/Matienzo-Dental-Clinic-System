@@ -9,6 +9,9 @@ import User from '../models/user.js';
 // ==========================================
 const transporter = nodemailer.createTransport({
   service: 'gmail',
+  port: 465,
+  secure: true, // true for port 465
+  family: 4,
   auth: {
     user: 'matienzo.dentalclinic@gmail.com',
     pass: process.env.EMAIL_PASS
@@ -132,6 +135,9 @@ export const submitSupportTicket = async (req, res) => {
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
+      port: 465,
+      secure: true, // true for port 465
+      family: 4,
       auth: {
         user: 'matienzo.dentalclinic@gmail.com', 
         pass: process.env.EMAIL_PASS

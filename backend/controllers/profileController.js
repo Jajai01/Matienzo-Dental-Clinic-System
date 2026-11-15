@@ -19,13 +19,13 @@ export const getUserProfile = async (req, res) => {
     const user = await User.findOne(findUserQuery(req.params.id)).select('-password'); 
     
     if (!user) {
-      return res.status(404).json({ returnDocument: 'before', message: "User not found." });
+      return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    res.status(200).json({ returnDocument: 'after', user });
+    return res.status(200).json({ success: true, user });
   } catch (error) {
     console.error("Error fetching profile:", error);
-    res.status(500).json({ returnDocument: 'before', message: "Server error retrieving profile." });
+    return res.status(500).json({ success: false, message: "Server error retrieving profile." });
   }
 };
 
@@ -67,18 +67,18 @@ export const updateUserProfile = async (req, res) => {
     ).select('-password');
 
     if (!updatedUser) {
-      return res.status(404).json({ returnDocument: 'before', message: "User not found." });
+      return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    res.status(200).json({ 
-      returnDocument: 'after',
+    return res.status(200).json({ 
+      success: true,
       message: "Profile updated successfully.", 
       user: updatedUser 
     });
   } catch (error) {
     console.error("Error updating profile:", error);
-    res.status(500).json({ 
-      returnDocument: 'before',
+    return res.status(500).json({ 
+      success: false,
       message: "Server error updating profile.", 
       error: error.message 
     });
@@ -92,21 +92,20 @@ export const updateUserProfile = async (req, res) => {
 export const getPreferences = async (req, res) => {
   try {
     const user = await User.findOne(findUserQuery(req.params.id));
-    if (!user) return res.status(404).json({ returnDocument: 'before', message: "User not found." });
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
 
     const rawPrefs = user.preferences || {};
     const preferences = {
       notifyEmail: rawPrefs.notifyEmail ?? true,
       notifyMarketing: rawPrefs.notifyMarketing ?? false,
       twoFactorAuth: rawPrefs.twoFactorAuth ?? false,
-      // 🔑 Checks root level first, then preferences sub-object, then legacy keys, defaulting to true
       allowClinicalResearch: user.allowClinicalResearch ?? rawPrefs.allowClinicalResearch ?? rawPrefs.shareMedicalData ?? true
     };
 
-    res.status(200).json({ returnDocument: 'after', preferences });
+    return res.status(200).json({ success: true, preferences });
   } catch (error) {
     console.error("Get Preferences Error:", error);
-    res.status(500).json({ returnDocument: 'before', message: "Failed to fetch preferences" });
+    return res.status(500).json({ success: false, message: "Failed to fetch preferences" });
   }
 };
 
@@ -121,7 +120,6 @@ export const updatePreferences = async (req, res) => {
     const updatedUser = await User.findOneAndUpdate(
       findUserQuery(req.params.id), 
       { 
-        // 🔑 Save at the root level for admin export and inside preferences for frontend UI sync
         allowClinicalResearch: allowClinicalResearch,
         preferences: {
           notifyEmail,
@@ -130,22 +128,22 @@ export const updatePreferences = async (req, res) => {
           allowClinicalResearch
         } 
       }, 
-      { new: true }
+      { returnDocument: 'after' }
     );
     
-    if (!updatedUser) return res.status(404).json({ returnDocument: 'before', message: "User not found." });
+    if (!updatedUser) return res.status(404).json({ success: false, message: "User not found." });
 
     const preferences = {
       notifyEmail: updatedUser.preferences?.notifyEmail ?? notifyEmail,
       notifyMarketing: updatedUser.preferences?.notifyMarketing ?? notifyMarketing,
       twoFactorAuth: updatedUser.preferences?.twoFactorAuth ?? twoFactorAuth,
-      allowClinicalResearch: updatedUser.allowClinicalResearch
+      allowClinicalResearch: updatedUser.allowClinicalResearch ?? allowClinicalResearch
     };
 
-    res.status(200).json({ returnDocument: 'after', preferences });
+    return res.status(200).json({ success: true, message: "Preferences saved successfully.", preferences });
   } catch (error) {
     console.error("Update Preferences Error:", error);
-    res.status(500).json({ returnDocument: 'before', message: "Failed to update preferences" });
+    return res.status(500).json({ success: false, message: "Failed to update preferences" });
   }
 };
 
@@ -158,11 +156,11 @@ export const changePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     
     const user = await User.findOne(findUserQuery(req.params.id)).select('+password');
-    if (!user) return res.status(404).json({ returnDocument: 'before', message: "User not found" });
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
-      return res.status(400).json({ returnDocument: 'before', message: "Incorrect current password" });
+      return res.status(400).json({ success: false, message: "Incorrect current password" });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -170,9 +168,9 @@ export const changePassword = async (req, res) => {
 
     await User.findOneAndUpdate(findUserQuery(req.params.id), { password: hashedPassword });
 
-    res.status(200).json({ returnDocument: 'after', message: "Password updated successfully" });
+    return res.status(200).json({ success: true, message: "Password updated successfully" });
   } catch (error) {
-    res.status(500).json({ returnDocument: 'before', message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
