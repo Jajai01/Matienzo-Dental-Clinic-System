@@ -39,18 +39,25 @@ export const uploadMedicalPhoto = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
 
-        const imageUrl = `${import.meta.env.VITE_API_URL}/uploads/${req.file.filename}`;
+        // 🔑 Dynamically generate correct absolute URL for the uploaded photo
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
 
-        // 🔑 Safe query builder for MedicalRecord
         let recordQuery = { patientId: patientId };
         if (mongoose.Types.ObjectId.isValid(patientId)) {
             recordQuery = { $or: [{ patientId }, { _id: patientId }] };
         }
 
-        const record = await MedicalRecord.findOne(recordQuery);
+        let record = await MedicalRecord.findOne(recordQuery);
         
+        // Create medical record if it doesn't exist yet for this patient
         if (!record) {
-            return res.status(404).json({ success: false, message: 'Patient medical record not found' });
+            record = new MedicalRecord({
+                patientId: patientId,
+                history: [],
+                prescriptions: [],
+                photos: []
+            });
         }
 
         if (!record.photos) {
@@ -64,63 +71,80 @@ export const uploadMedicalPhoto = async (req, res) => {
 
         await record.save();
 
-        // 🔑 Safe user lookup to prevent CastErrors on findById
         const patient = await User.findOne({ patientId: patientId }) || 
                         (mongoose.Types.ObjectId.isValid(patientId) ? await User.findById(patientId).catch(() => null) : null);
         
-        const patientName = patient ? `${patient.firstName} ${patient.lastName}` : (record.patientName || 'Unknown Patient');
+        const patientName = patient ? `${patient.firstName} ${patient.lastName}` : 'Unknown Patient';
         const patientEmail = patient ? patient.email : 'Not provided';
 
-        const adminPhotoNotificationTemplate = `
-          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
-            <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
-              <div style="background-color: #D4AF37; padding: 25px; text-align: center;">
-                <h2 style="color: #0f172a; margin: 0; font-size: 20px; letter-spacing: 1px;">New Medical Photo Upload</h2>
-                <p style="color: #0f172a; margin: 5px 0 0 0; font-size: 13px; opacity: 0.9;">A patient has submitted a new image</p>
-              </div>
-              <div style="padding: 30px;">
-                <p style="color: #0f172a; font-size: 15px; margin-top: 0;">Hello Admin / Dra. Matienzo,</p>
-                <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-                  Patient <strong>${patientName}</strong> (ID: ${patientId || 'N/A'}) has securely uploaded a new medical photo or x-ray to their profile.
-                </p>
-                <div style="background-color: #f1f5f9; border-left: 4px solid #D4AF37; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
-                  <p style="margin: 0 0 5px 0; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: bold;">Submission Details</p>
-                  <p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Patient Name:</strong> ${patientName}</p>
-                  <p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>Patient Email:</strong> ${patientEmail}</p>
-                  <p style="margin: 3px 0; color: #0f172a; font-size: 14px;"><strong>File Name:</strong> ${req.file.originalname}</p>
-                  <p style="margin: 10px 0 0 0;"><a href="${imageUrl}" target="_blank" style="color: #3b82f6; font-weight: bold; text-decoration: underline;">🔗 View Uploaded Image</a></p>
-                </div>
-                <p style="color: #475569; font-size: 13px;">Please log in to the clinic management dashboard to review the image and update clinical notes.</p>
-              </div>
-              <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
-                <p style="color: #94a3b8; font-size: 12px; margin: 0;">Matienzo Dental Clinic System - Automated Notification</p>
-              </div>
-            </div>
-          </div>
-        `;
+        // Dispatch Email Notification to Clinic
+        try {
+            const transporter = createTransporter();
+            await transporter.sendMail({
+                from: `"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>`,
+                to: 'matienzo.dentalclinic@gmail.com',
+                subject: `📸 New Medical Photo Upload - ${patientName}`,
+                html: `
+                  <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 10px;">
+                    <h2 style="color: #0f172a;">New Medical Photo Uploaded</h2>
+                    <p><strong>Patient Name:</strong> ${patientName}</p>
+                    <p><strong>Patient ID:</strong> ${patientId}</p>
+                    <p><strong>Email:</strong> ${patientEmail}</p>
+                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+                    <p>The patient has securely uploaded a new photo/x-ray to their medical record.</p>
+                  </div>
+                `
+            });
+        } catch (emailErr) {
+            console.error("Failed to send admin photo email notification:", emailErr);
+        }
 
-        const activeTransporter = createTransporter();
-        activeTransporter.sendMail({
-          from: '"Matienzo Dental System" <matienzo.dentalclinic@gmail.com>',
-          to: 'matienzo.dentalclinic@gmail.com',
-          subject: `New Medical Photo Upload: ${patientName}`,
-          html: adminPhotoNotificationTemplate
-        }).catch((err) => {
-          console.error("🚨 Photo upload email dispatch failed:", err);
-        });
-
-        res.status(200).json({ 
+        return res.status(200).json({ 
             success: true, 
-            message: 'Photo uploaded successfully', 
+            message: 'Photo uploaded successfully!', 
             imageUrl,
             photos: record.photos 
         });
 
     } catch (error) {
-        console.error("Error uploading medical record photo:", error);
-        res.status(500).json({ success: false, message: 'Server error during file upload' });
+        console.error("Upload Error:", error);
+        return res.status(500).json({ success: false, message: "Server error uploading photo." });
     }
 };
+
+  // 📸 PHOTO UPLOAD HANDLER
+  const handleFileUpload = async (e) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+
+    const patientId = user?.patientId || user?._id;
+    const formData = new FormData();
+    formData.append('image', uploadFile);
+    formData.append('patientId', patientId);
+
+    setIsUploading(true);
+    setUploadMessage('');
+
+    try {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/medical-records/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (response.data.success) {
+        setUploadMessage('Photo uploaded successfully!');
+        setUploadFile(null);
+      } else {
+        setUploadMessage('Failed to upload photo.');
+      }
+    } catch (error) {
+      console.error("Upload failed:", error);
+      setUploadMessage(error.response?.data?.message || 'Failed to upload photo.');
+    } finally {
+      setIsUploading(false);
+      setTimeout(() => setUploadMessage(''), 4000); 
+    }
+  };
+
 
 export const getMedicalRecords = async (req, res) => {
   try {
@@ -212,7 +236,7 @@ export const updateDiagnosis = async (req, res) => {
 export const addPrescription = async (req, res) => {
   try {
     const { patientId } = req.params;
-    const { medicine, dosage, quantity, status, frequency, duration, notes, expiryDate } = req.body; // 🔑 Added expiryDate
+    const { medicine, dosage, quantity, status, frequency, duration, notes, expiryDate } = req.body;
 
     const prescriptionId = `RX-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const issueDate = new Date().toISOString();
@@ -237,7 +261,10 @@ export const addPrescription = async (req, res) => {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
     const pdfPath = path.join(uploadsDir, pdfFileName);
-    const pdfUrl = `${import.meta.env.VITE_API_URL}/uploads/${pdfFileName}`;
+    
+    // 🔑 FIX: Use request protocol and host or process.env instead of frontend import.meta.env
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const pdfUrl = `${baseUrl}/uploads/${pdfFileName}`;
 
     await new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A5', margin: 24 });
@@ -281,7 +308,7 @@ export const addPrescription = async (req, res) => {
       doc.font('Helvetica').fontSize(7.5).text('License No.  0043010', 220, doc.y + 2, { align: 'right' });
       doc.moveDown(0.8);
 
-      // --- POST-EXTRACTION AND SURGERY INSTRUCTIONS (Bottom Section) ---
+      // --- POST-EXTRACTION AND SURGERY INSTRUCTIONS ---
       doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0f172a').text('POST-EXTRACTION AND SURGERY INSTRUCTIONS', { align: 'center' });
       doc.moveDown(0.3);
 
@@ -319,7 +346,7 @@ export const addPrescription = async (req, res) => {
       duration: duration || '',      
       notes: notes || '',            
       quantity: quantity || '',
-      expiryDate: expiryDate || '', // 🔑 Saved to MongoDB record
+      expiryDate: expiryDate || '', 
       status: status || 'Active',
       pdfUrl
     };

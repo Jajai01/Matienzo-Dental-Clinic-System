@@ -3,20 +3,24 @@ import Appointment from '../models/appointments.js';
 import { MedicalRecord } from '../models/MedicalData.js';
 import nodemailer from 'nodemailer';
 import User from '../models/user.js';
+import mongoose from 'mongoose';
+import ClinicSettings from '../models/clinicSettings.js';
 
 // ==========================================
-// EMAIL CONFIGURATION
+// ROBUST EMAIL TRANSPORTER CONFIGURATION
 // ==========================================
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  port: 465,
-  secure: true, // true for port 465
-  family: 4,
-  auth: {
-    user: 'matienzo.dentalclinic@gmail.com',
-    pass: process.env.EMAIL_PASS
-  }
-});
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // true for port 465
+    family: 4,    // Forces IPv4 to prevent hanging/timeouts on Render
+    auth: {
+      user: 'matienzo.dentalclinic@gmail.com',
+      pass: process.env.EMAIL_PASS
+    }
+  });
+};
 
 /**
  * @desc    Export system data for research and analytics (Strictly excludes opted-out patients)
@@ -35,9 +39,7 @@ export const exportResearchData = async (req, res) => {
 
     let payload = {};
 
-    // 🔑 FIX: Only fetch users who have explicitly opted OUT (false)
     const optedOutUsers = await User.find({ allowClinicalResearch: false }).select('_id email name');
-
     const optedOutIds = optedOutUsers.map(u => u._id.toString());
     const optedOutEmails = optedOutUsers.map(u => u.email).filter(Boolean);
 
@@ -106,7 +108,7 @@ export const exportResearchData = async (req, res) => {
     
     if (format === 'csv') {
       if (!payload.appointments || payload.appointments.length === 0) {
-        return res.status(400).json({ message: "No appointment data available to generate CSV based on current filters." });
+        return res.status(400).json({ success: false, message: "No appointment data available to generate CSV based on current filters." });
       }
 
       const headers = Object.keys(payload.appointments[0]).join(',');
@@ -120,7 +122,7 @@ export const exportResearchData = async (req, res) => {
 
   } catch (error) {
     console.error("Data Export Error:", error);
-    return res.status(500).json({ message: "Server error during data extraction." });
+    return res.status(500).json({ success: false, message: "Server error during data extraction." });
   }
 };
 
@@ -133,26 +135,22 @@ export const submitSupportTicket = async (req, res) => {
   try {
     const { subject, urgency, message, adminName } = req.body;
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      port: 465,
-      secure: true, // true for port 465
-      family: 4,
-      auth: {
-        user: 'matienzo.dentalclinic@gmail.com', 
-        pass: process.env.EMAIL_PASS
-      }
-    });
+    if (!process.env.EMAIL_PASS) {
+      console.error("❌ EMAIL_PASS environment variable is missing on the server!");
+      return res.status(500).json({ success: false, message: "Server email configuration is missing." });
+    }
+
+    const transporter = createTransporter();
 
     const mailOptions = {
-      from: 'matienzo.dentalclinic@gmail.com',
+      from: `"Matienzo Dental Admin" <matienzo.dentalclinic@gmail.com>`,
       to: 'lucillerbnq@gmail.com',
       subject: `🚨 IT Ticket [${urgency}]: ${subject}`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
           <h2 style="color: #D4AF37;">New IT Support Ticket</h2>
           <p><strong>Urgency Level:</strong> <span style="color: ${urgency === 'Critical' ? 'red' : 'black'}; font-weight: bold;">${urgency}</span></p>
-          <p><strong>Submitted By:</strong> ${adminName}</p>
+          <p><strong>Submitted By:</strong> ${adminName || 'Admin'}</p>
           <hr style="border: 1px solid #eee; margin: 15px 0;" />
           <p><strong>Issue Description:</strong></p>
           <p style="background-color: #f8fafc; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${message}</p>
@@ -161,11 +159,12 @@ export const submitSupportTicket = async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
+    console.log(`[Admin Ticket] Support ticket successfully sent for: ${subject}`);
     
     return res.status(200).json({ success: true, message: "Ticket sent securely to the developer." });
   } catch (error) {
     console.error("Support Ticket Email Error:", error);
-    return res.status(500).json({ success: false, message: "Server failed to dispatch email." });
+    return res.status(500).json({ success: false, message: error.message || "Server failed to dispatch email." });
   }
 };
 
@@ -200,13 +199,12 @@ export const updateClinicSettings = async (req, res) => {
 
 /**
  * @desc    Update Patient Research Privacy Preference
- * @route   PUT /api/patient/research-preference (or matching route)
+ * @route   PUT /api/patient/research-preference
  */
 export const updateResearchPreference = async (req, res) => {
   try {
     const { allowClinicalResearch } = req.body;
     
-    // 🔑 Debug log to ensure patient ID is received from auth middleware
     console.log("📥 Updating research preference for User ID:", req.user?._id, "Value:", allowClinicalResearch);
 
     if (!req.user || !req.user._id) {

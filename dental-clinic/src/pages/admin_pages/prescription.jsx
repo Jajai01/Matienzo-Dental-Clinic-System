@@ -380,7 +380,7 @@ const Prescription = ({ admin, setAdmin }) => {
                     ) : (
                       <>
                         <span>Save to Records</span>
-                        <span>💾</span>
+                        
                       </>
                     )}
                   </button>
@@ -392,7 +392,7 @@ const Prescription = ({ admin, setAdmin }) => {
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs tracking-wide uppercase cursor-pointer"
                   >
                     <span>Download A5 PDF</span>
-                    <span>📄</span>
+                    
                   </button>
                 </div>
                 

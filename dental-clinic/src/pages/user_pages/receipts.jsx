@@ -6,6 +6,10 @@ const Receipts = ({ user, setUser }) => {
   const [receipts, setReceipts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // 🔑 Pagination States (20 receipts per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const receiptsPerPage = 20;
+
   // 🧠 FETCH DATA ON PAGE LOAD
   useEffect(() => {
     const fetchReceipts = async () => {
@@ -13,7 +17,6 @@ const Receipts = ({ user, setUser }) => {
         const patientId = user?.patientId || user?._id;
         if (!patientId) return;
 
-        // We use the exact same endpoint as the Appointments page!
         const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/appointments/patient/${patientId}`);
         
         // Filter out cancelled appointments, as they won't have receipts
@@ -29,6 +32,21 @@ const Receipts = ({ user, setUser }) => {
 
     fetchReceipts();
   }, [user]);
+
+  // 🔑 1. SORTING: Latest to Oldest transaction date
+  const sortedReceipts = [...receipts].sort((a, b) => {
+    const dateA = new Date(a.selectedDate || a.createdAt).getTime();
+    const dateB = new Date(b.selectedDate || b.createdAt).getTime();
+    return dateB - dateA; // Descending (newest first)
+  });
+
+  // 🔑 2. PAGINATION MATH
+  const indexOfLastReceipt = currentPage * receiptsPerPage;
+  const indexOfFirstReceipt = indexOfLastReceipt - receiptsPerPage;
+  const currentReceipts = sortedReceipts.slice(indexOfFirstReceipt, indexOfLastReceipt);
+  const totalPages = Math.ceil(sortedReceipts.length / receiptsPerPage);
+
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
   // Format numbers to Philippine Peso (PHP)
   const formatCurrency = (amount) => {
@@ -72,6 +90,11 @@ const Receipts = ({ user, setUser }) => {
                 <h2 className="text-lg font-bold text-slate-950 tracking-tight">Transaction Ledger</h2>
                 <div className="h-0.5 w-10 bg-[#D4AF37] mt-1.5 rounded"></div>
               </div>
+              {!isLoading && sortedReceipts.length > 0 && (
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                  Showing {sortedReceipts.length} total transaction{sortedReceipts.length > 1 ? 's' : ''}
+                </span>
+              )}
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -94,8 +117,8 @@ const Receipts = ({ user, setUser }) => {
                         <p>Loading financial records...</p>
                       </td>
                     </tr>
-                  ) : receipts.length > 0 ? (
-                    receipts.map((row) => (
+                  ) : currentReceipts.length > 0 ? (
+                    currentReceipts.map((row) => (
                       <tr key={row._id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-6 py-4">
                           <div className="font-mono text-slate-400 font-bold">{row.referenceCode}</div>
@@ -136,6 +159,31 @@ const Receipts = ({ user, setUser }) => {
                 </tbody>
               </table>
             </div>
+
+            {/* 🔑 PAGINATION FOOTER */}
+            {totalPages > 1 && (
+              <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 mt-4 rounded-xl flex items-center justify-between">
+                <span className="text-xs text-slate-500 font-medium">
+                  Showing <strong className="text-slate-800">{indexOfFirstReceipt + 1}</strong> to <strong className="text-slate-800">{Math.min(indexOfLastReceipt, sortedReceipts.length)}</strong> of <strong className="text-slate-800">{sortedReceipts.length}</strong> receipts
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => paginate(currentPage - 1)} 
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm cursor-pointer"
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    onClick={() => paginate(currentPage + 1)} 
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
             
             <div className="mt-6 bg-slate-50 rounded-xl p-4 border border-slate-100 flex items-start gap-3">
               <span className="text-lg">💡</span>

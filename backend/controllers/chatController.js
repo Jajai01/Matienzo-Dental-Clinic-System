@@ -119,3 +119,28 @@ export const replyToChat = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const markMessagesAsRead = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    const { readerRole } = req.body; // 'patient' or 'doctor'
+
+    const chat = await Chat.findOne({ patientId });
+    if (!chat) return res.status(404).json({ success: false, message: "Chat not found" });
+
+    // Mark messages sent by the *other* party as read
+    chat.messages.forEach(msg => {
+      if (readerRole === 'patient' && msg.sender !== 'patient') {
+        msg.read = true;
+      } else if (readerRole === 'doctor' && msg.sender === 'patient') {
+        msg.read = true;
+      }
+    });
+
+    await chat.save();
+    return res.status(200).json({ success: true, message: "Messages marked as read" });
+  } catch (error) {
+    console.error("Mark Read Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};

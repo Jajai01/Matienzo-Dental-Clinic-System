@@ -24,6 +24,10 @@ const Appointment = ({ user, setUser }) => {
   // 📅 NEW: Blocked Dates State
   const [blockedDates, setBlockedDates] = useState([]);
 
+  // 🔑 NEW: Pagination States for Historical Treatment Logs (20 per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const logsPerPage = 20;
+
   const today = new Date().toISOString().split('T')[0];
 
   // 1. 🧠 FETCH DATA ON PAGE LOAD
@@ -180,6 +184,21 @@ const Appointment = ({ user, setUser }) => {
       default: return 'bg-slate-50 text-slate-700 border-slate-200';
     }
   };
+
+  // 🔑 1. SORTING: Latest treatment date first
+  const sortedHistory = [...appointmentHistory].sort((a, b) => {
+    const dateA = new Date(a.selectedDate || a.createdAt).getTime();
+    const dateB = new Date(b.selectedDate || b.createdAt).getTime();
+    return dateB - dateA;
+  });
+
+  // 🔑 2. PAGINATION MATH (20 items per page)
+  const indexOfLastLog = currentPage * logsPerPage;
+  const indexOfFirstLog = indexOfLastLog - logsPerPage;
+  const currentLogs = sortedHistory.slice(indexOfFirstLog, indexOfLastLog);
+  const totalPages = Math.ceil(sortedHistory.length / logsPerPage);
+
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
   return (
     <div className="flex w-full min-h-screen bg-slate-50 text-slate-900 antialiased font-sans relative">
@@ -381,7 +400,6 @@ const Appointment = ({ user, setUser }) => {
                     <span className="text-red-500 text-sm mt-0.5">🔒</span>
                     <span><strong>Unclickable Slots / Days:</strong> If a specific calendar day or time button is grayed out or rejected, it means that time has passed, is already occupied, or the doctor is unavailable.</span>
                   </li>
-                  {/* 💳 NEW: explicit payment guideline regarding Cash/GCash vs HMO */}
                   <li className="flex items-start gap-2.5">
                     <span className="text-emerald-500 text-sm mt-0.5">💳</span>
                     <span><strong>Payment Methods:</strong> The clinic currently accepts <strong>Cash, GCash, and Bank Transfer</strong>. We do not accept HMOs or Insurance cards at this time.</span>
@@ -398,9 +416,16 @@ const Appointment = ({ user, setUser }) => {
 
           {/* 3. HISTORICAL DATATABLE SECTION LAYER */}
           <div className="bg-white border-2 border-slate-200/80 rounded-3xl p-6 shadow-sm text-left">
-            <div className="mb-5">
-              <h2 className="text-lg font-bold text-slate-950 tracking-tight">Historical Treatment Logs</h2>
-              <div className="h-0.5 w-10 bg-slate-400 mt-1.5 rounded"></div>
+            <div className="mb-5 flex justify-between items-end">
+              <div>
+                <h2 className="text-lg font-bold text-slate-950 tracking-tight">Historical Treatment Logs</h2>
+                <div className="h-0.5 w-10 bg-slate-400 mt-1.5 rounded"></div>
+              </div>
+              {!isLoading && sortedHistory.length > 0 && (
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                  Total: {sortedHistory.length} record{sortedHistory.length > 1 ? 's' : ''}
+                </span>
+              )}
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -419,12 +444,12 @@ const Appointment = ({ user, setUser }) => {
                     <tr>
                       <td colSpan="5" className="px-6 py-12 text-center text-slate-400">Loading history...</td>
                     </tr>
-                  ) : appointmentHistory.length > 0 ? (
-                    appointmentHistory.map((row) => (
+                  ) : currentLogs.length > 0 ? (
+                    currentLogs.map((row) => (
                        <tr key={row._id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-6 py-4 font-mono text-slate-400">
-                        {row.referenceCode}
-                      </td>
+                        <td className="px-6 py-4 font-mono text-slate-400">
+                          {row.referenceCode}
+                        </td>
                         <td className="px-6 py-4 text-slate-950 font-semibold">{row.selectedDate}</td>
                         <td className="px-6 py-4">{row.service}</td>
                         <td className="px-6 py-4 text-slate-500">{row.dentist}</td>
@@ -446,6 +471,31 @@ const Appointment = ({ user, setUser }) => {
                 </tbody>
               </table>
             </div>
+
+            {/* 🔑 PAGINATION FOOTER */}
+            {totalPages > 1 && (
+              <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 mt-4 rounded-xl flex items-center justify-between">
+                <span className="text-xs text-slate-500 font-medium">
+                  Showing <strong className="text-slate-800">{indexOfFirstLog + 1}</strong> to <strong className="text-slate-800">{Math.min(indexOfLastLog, sortedHistory.length)}</strong> of <strong className="text-slate-800">{sortedHistory.length}</strong> logs
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => paginate(currentPage - 1)} 
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm cursor-pointer"
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    onClick={() => paginate(currentPage + 1)} 
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>

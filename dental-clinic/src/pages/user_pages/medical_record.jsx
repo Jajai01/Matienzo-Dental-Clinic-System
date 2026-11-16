@@ -5,6 +5,7 @@ import ConsoleSidebar from '../sidebar';
 const MedicalRecord = ({ user, setUser }) => {
   const [treatmentHistory, setTreatmentHistory] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
+  const [photos, setPhotos] = useState([]); // 🔑 Photos state
   const [messages, setMessages] = useState([]);
   const [isDoctorActive, setIsDoctorActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -13,6 +14,7 @@ const MedicalRecord = ({ user, setUser }) => {
   const [activeRxIndex, setActiveRxIndex] = useState(0);
   const [pastRxIndex, setPastRxIndex] = useState(0);
   const [treatmentIndex, setTreatmentIndex] = useState(0);
+  const [photoIndex, setPhotoIndex] = useState(0); // 🔑 Photo Carousel Index State
   
   // State to handle the floating chat window toggle
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -54,6 +56,7 @@ const MedicalRecord = ({ user, setUser }) => {
         if (medicalRes.data && medicalRes.data.success) {
           setTreatmentHistory([...(medicalRes.data.history || [])].reverse());
           setPrescriptions([...(medicalRes.data.prescriptions || [])].reverse());
+          setPhotos(medicalRes.data.photos || []); // 🔑 Load uploaded photos array
         }
 
         setIsDoctorActive(statusRes.data?.isActive || false);
@@ -84,6 +87,27 @@ const MedicalRecord = ({ user, setUser }) => {
     }
   }, [messages, isChatOpen]);
 
+  // 🔑 HANDLE OPEN CHAT & MARK MESSAGES AS READ
+  const handleToggleChat = async () => {
+    const nextState = !isChatOpen;
+    setIsChatOpen(nextState);
+
+    if (nextState) {
+      const patientId = user?.patientId || user?._id;
+      if (!patientId) return;
+
+      try {
+        await axios.put(`${import.meta.env.VITE_API_URL}/api/chats/read/${patientId}`, {
+          readerRole: 'patient'
+        });
+        // Update local state so unread badges clear immediately
+        setMessages(prev => prev.map(m => m.sender === 'doctor' ? { ...m, read: true } : m));
+      } catch (err) {
+        console.error("Failed to mark chat as read", err);
+      }
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -92,7 +116,7 @@ const MedicalRecord = ({ user, setUser }) => {
     const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const messageToSend = newMessage;
-    const tempMessage = { id: Date.now(), sender: 'patient', text: messageToSend, time: currentTime };
+    const tempMessage = { id: Date.now(), sender: 'patient', text: messageToSend, time: currentTime, read: true };
     
     setMessages((prev) => [...prev, tempMessage]);
     setNewMessage('');
@@ -143,20 +167,51 @@ const MedicalRecord = ({ user, setUser }) => {
     formData.append('patientId', patientId);
 
     setIsUploading(true);
+    setUploadMessage('');
+    
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/api/medical-records/upload`, formData, {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/medical-records/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setUploadMessage('Photo uploaded successfully!');
-      setUploadFile(null); 
+      
+      if (response.data.success) {
+        setUploadMessage('Photo uploaded successfully!');
+        setUploadFile(null); 
+        // 🔑 Instantly update photos state so carousel refreshes
+        if (response.data.photos) {
+          setPhotos(response.data.photos);
+        } else {
+          // Fallback refetch
+          const medRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/medical-records/${patientId}`);
+          if (medRes.data.success) {
+            setPhotos(medRes.data.photos || []);
+          }
+        }
+      } else {
+        setUploadMessage('Failed to upload photo.');
+      }
     } catch (error) {
       console.error("Upload failed:", error);
-      setUploadMessage('Failed to upload photo.');
+      setUploadMessage(error.response?.data?.message || 'Failed to upload photo.');
     } finally {
       setIsUploading(false);
       setTimeout(() => setUploadMessage(''), 4000); 
     }
   };
+
+  // Helper to fix localhost vs production image URLs
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+      return url;
+    }
+    const cleanedPath = url.replace(/^https?:\/\/[^/]+/, '');
+    const baseUrl = import.meta.env.VITE_API_URL || '';
+    return `${baseUrl}${cleanedPath.startsWith('/') ? '' : '/'}${cleanedPath}`;
+  };
+
+  // 🔑 Calculate unread messages from doctor
+  const unreadCount = messages.filter(m => m.sender === 'doctor' && !m.read).length;
 
   if (isLoading) {
     return (
@@ -310,22 +365,22 @@ const MedicalRecord = ({ user, setUser }) => {
                 )}
               </div>
 
-              {/* PHOTO UPLOAD MODULE */}
+              {/* PHOTO UPLOAD & CAROUSEL MODULE */}
               <div className="bg-white border-2 border-slate-200/80 rounded-3xl p-6 shadow-sm mt-6">
-                <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <span className="text-lg">📸</span> Upload Medical Photo
+                <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span className="text-lg">📸</span> Upload & View Medical Photos
                 </h3>
                 <p className="text-xs text-slate-500 font-medium mb-4">
-                  Securely send an image (like a dental x-ray or physical symptom) directly to the doctor's dashboard.
+                  Securely upload an image (such as an x-ray or symptom) to send to the clinic, and browse your uploaded documents below in a carousel view.
                 </p>
                 
-                <form onSubmit={handleFileUpload} className="flex flex-col gap-4">
+                <form onSubmit={handleFileUpload} className="flex flex-col gap-4 mb-6">
                   <div className="flex items-center justify-center w-full">
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <svg className="w-8 h-8 mb-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                         <p className="mb-2 text-sm text-slate-500 font-semibold truncate max-w-50">
-                          {uploadFile ? uploadFile.name : "Click to upload a photo"}
+                          {uploadFile ? uploadFile.name : "Click to select a photo"}
                         </p>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">PNG, JPG or JPEG</p>
                       </div>
@@ -352,6 +407,63 @@ const MedicalRecord = ({ user, setUser }) => {
                     </p>
                   )}
                 </form>
+
+                {/* 🔑 PATIENT UPLOADED PHOTOS CAROUSEL MODULE */}
+                <div className="pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">My Uploaded Documents Carousel</h4>
+                    {photos.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-500">
+                          {(photoIndex % photos.length) + 1} of {photos.length}
+                        </span>
+                        <button 
+                          type="button"
+                          onClick={() => setPhotoIndex(prev => (prev - 1 + photos.length) % photos.length)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer shadow-sm text-xs"
+                        >
+                          ‹
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setPhotoIndex(prev => (prev + 1) % photos.length)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer shadow-sm text-xs"
+                        >
+                          ›
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {photos.length > 0 ? (() => {
+                    const currentPhoto = photos[photoIndex % photos.length];
+                    const photoUrl = getImageUrl(currentPhoto.url || currentPhoto);
+                    return (
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col items-center gap-3">
+                        <a href={photoUrl} target="_blank" rel="noopener noreferrer" className="w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                          <img 
+                            src={photoUrl} 
+                            alt="Patient uploaded medical document" 
+                            className="w-full h-52 object-contain hover:scale-105 transition-transform duration-300"
+                          />
+                        </a>
+                        <div className="w-full flex justify-between items-center text-xs">
+                          <span className="text-slate-400 font-bold">
+                            Uploaded: {currentPhoto.date ? new Date(currentPhoto.date).toLocaleDateString() : 'Recent'}
+                          </span>
+                          <a href={photoUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-blue-600 hover:underline">
+                            View Full Size ↗
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })() : (
+                    <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl bg-white">
+                      No photos uploaded by you yet.
+                    </div>
+                  )}
+                </div>
+
               </div>
 
             </div>
@@ -459,7 +571,7 @@ const MedicalRecord = ({ user, setUser }) => {
                 )}
               </div>
               <button 
-                onClick={() => setIsChatOpen(false)} 
+                onClick={handleToggleChat} 
                 className="text-slate-400 hover:text-white transition-colors p-1 cursor-pointer"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -503,10 +615,17 @@ const MedicalRecord = ({ user, setUser }) => {
           </div>
         )}
 
+        {/* 🔑 FLOATING CHAT BUTTON WITH UNREAD BADGE */}
         <button 
-          onClick={() => setIsChatOpen(!isChatOpen)}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 cursor-pointer ${isChatOpen ? 'bg-slate-800 text-white' : 'bg-[#D4AF37] hover:bg-amber-500 text-white'}`}
+          onClick={handleToggleChat}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 cursor-pointer relative ${isChatOpen ? 'bg-slate-800 text-white' : 'bg-[#D4AF37] hover:bg-amber-500 text-white'}`}
         >
+          {unreadCount > 0 && !isChatOpen && (
+            <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md animate-bounce border-2 border-white">
+              {unreadCount}
+            </span>
+          )}
+
           {isChatOpen ? (
              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
           ) : (

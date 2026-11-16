@@ -101,6 +101,12 @@ const InstallmentManager = ({ admin, setAdmin }) => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const currentPlans = filteredPlans.slice(startIndex, startIndex + itemsPerPage);
 
+  // 🔑 Statistics Summary Calculations
+  const totalLoanVolume = plans.reduce((sum, p) => sum + (p.totalLoan || 0), 0);
+  const totalOutstandingBalance = plans.reduce((sum, p) => sum + (p.remainingBalance || 0), 0);
+  const activePlansCount = plans.filter(p => p.status === 'Active').length;
+  const completedPlansCount = plans.filter(p => p.status === 'Completed').length;
+
   return (
     <div className="flex w-full min-h-screen bg-slate-50 text-slate-900 antialiased font-sans relative">
       <AdminSidebar admin={admin} setAdmin={setAdmin} />
@@ -120,6 +126,26 @@ const InstallmentManager = ({ admin, setAdmin }) => {
             >
               <span>+ New Installment Plan</span>
             </button>
+          </div>
+
+          {/* 📊 STATS COUNTERS CARDS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white border-2 border-slate-200/80 rounded-2xl p-5 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Total Loan Volume</span>
+              <span className="text-xl font-black text-slate-900">PHP {totalLoanVolume.toLocaleString()}</span>
+            </div>
+            <div className="bg-white border-2 border-slate-200/80 rounded-2xl p-5 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Total Outstanding Balance</span>
+              <span className="text-xl font-black text-blue-600">PHP {totalOutstandingBalance.toLocaleString()}</span>
+            </div>
+            <div className="bg-white border-2 border-slate-200/80 rounded-2xl p-5 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Active Plans</span>
+              <span className="text-xl font-black text-emerald-600">{activePlansCount}</span>
+            </div>
+            <div className="bg-white border-2 border-slate-200/80 rounded-2xl p-5 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Completed Plans</span>
+              <span className="text-xl font-black text-slate-700">{completedPlansCount}</span>
+            </div>
           </div>
 
           {/* Search and Filters Section */}

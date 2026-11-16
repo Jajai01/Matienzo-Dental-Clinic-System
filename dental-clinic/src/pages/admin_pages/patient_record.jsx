@@ -21,6 +21,9 @@ const AdminRecords = ({ admin, setAdmin }) => {
   const [draftDiagnosis, setDraftDiagnosis] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
 
+  // 🔑 Accordion State: Keep track of which visit IDs are expanded in the modal
+  const [expandedVisits, setExpandedVisits] = useState({});
+
   // 🔑 Helper to prevent timezone off-by-one date shifts
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -39,11 +42,9 @@ const AdminRecords = ({ admin, setAdmin }) => {
   // 🔑 Helper to fix localhost vs production image URLs
   const getImageUrl = (url) => {
     if (!url) return '';
-    // If it's already an external storage URL (e.g. Cloudinary/S3), return as-is
     if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
       return url;
     }
-    // Strip localhost domain if present and attach active VITE_API_URL
     const cleanedPath = url.replace(/^https?:\/\/[^/]+/, '');
     const baseUrl = import.meta.env.VITE_API_URL || '';
     return `${baseUrl}${cleanedPath.startsWith('/') ? '' : '/'}${cleanedPath}`;
@@ -104,12 +105,29 @@ const AdminRecords = ({ admin, setAdmin }) => {
     setSelectedPatient(patientRecord);
     setIsModalOpen(true);
     setEditingHistoryId(null);
+
+    // Automatically expand the latest visit (index 0 of reversed history) by default
+    if (patientRecord.history && patientRecord.history.length > 0) {
+      const reversed = [...patientRecord.history].reverse();
+      const latestId = reversed[0].id || 0;
+      setExpandedVisits({ [latestId]: true });
+    } else {
+      setExpandedVisits({});
+    }
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedPatient(null);
     setEditingHistoryId(null);
+    setExpandedVisits({});
+  };
+
+  const toggleVisitAccordion = (visitId) => {
+    setExpandedVisits(prev => ({
+      ...prev,
+      [visitId]: !prev[visitId]
+    }));
   };
 
   const handleSaveNote = async (historyId) => {
@@ -137,7 +155,18 @@ const AdminRecords = ({ admin, setAdmin }) => {
         ));
 
         setEditingHistoryId(null);
-        toast.success("Clinical note updated successfully!");
+        
+        toast.success("Diagnosis saved and updated successfully!", {
+          position: "top-right",
+          duration: 4000,
+          style: {
+            background: '#0f172a',
+            color: '#fff',
+            fontWeight: 'bold',
+            fontSize: '13px',
+            borderRadius: '12px'
+          }
+        });
       }
     } catch (error) {
       console.error("Failed to save note:", error);
@@ -295,80 +324,104 @@ const AdminRecords = ({ admin, setAdmin }) => {
             <div className="p-8 overflow-y-auto bg-slate-50">
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Completed Treatment History</h3>
               
-              <div className="space-y-4">
+              {/* 🔑 ITEM 11: COLLAPSIBLE ACCORDION VISIT HISTORY */}
+              <div className="space-y-3">
                 {selectedPatient.history && selectedPatient.history.length > 0 ? (
-                  [...selectedPatient.history].reverse().map((visit, idx) => (
-                    <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-blue-300 transition-colors">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                        <div className="flex items-center gap-3">
-                          <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider">
-                            {formatDate(visit.date)}
-                          </span>
-                          <span className="text-xs font-semibold text-slate-500">Ref: {visit.id}</span>
-                        </div>
-                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md">
-                          Attending: {visit.dentist}
-                        </span>
-                      </div>
-                      
-                      <div className="mb-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Procedure</span>
-                        <p className="text-base font-bold text-slate-900">{visit.treatment}</p>
-                      </div>
+                  [...selectedPatient.history].reverse().map((visit, idx) => {
+                    const isExpanded = !!expandedVisits[visit.id];
 
-                      <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mt-3">
-                        <div className="flex justify-between items-center mb-1.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Clinical Diagnosis / Notes</span>
-                          
-                          {editingHistoryId === visit.id ? (
-                            <div className="flex items-center gap-2">
-                              <button 
-                                onClick={() => setEditingHistoryId(null)}
-                                className="text-[10px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                              <button 
-                                onClick={() => handleSaveNote(visit.id)}
-                                disabled={isSavingNote}
-                                className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1 rounded-md shadow-sm disabled:opacity-50 cursor-pointer"
-                              >
-                                {isSavingNote ? 'Saving...' : 'Save Note'}
-                              </button>
+                    return (
+                      <div key={idx} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden transition-all">
+                        
+                        {/* Accordion Header / Click to Toggle */}
+                        <div 
+                          onClick={() => toggleVisitAccordion(visit.id)}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-slate-50 cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider">
+                              {formatDate(visit.date)}
+                            </span>
+                            <span className="text-sm font-bold text-slate-900">{visit.treatment}</span>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-semibold text-slate-500 hidden sm:inline">Ref: {visit.id}</span>
+                            <span className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold transition-transform">
+                              {isExpanded ? '▲' : '▼'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Accordion Body / Expandable Content */}
+                        {isExpanded && (
+                          <div className="px-5 pb-5 pt-2 border-t border-slate-100 bg-white space-y-3 animate-fadeIn">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md">
+                                👩‍⚕️ Attending: {visit.dentist}
+                              </span>
                             </div>
-                          ) : (
-                            <button 
-                              onClick={() => {
-                                setEditingHistoryId(visit.id);
-                                setDraftDiagnosis(visit.diagnosis === "Pending Notes" ? "" : visit.diagnosis);
-                              }}
-                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                            >
-                              Edit Note
-                            </button>
-                          )}
-                        </div>
 
-                        {editingHistoryId === visit.id ? (
-                          <textarea 
-                            autoFocus
-                            rows="3"
-                            value={draftDiagnosis}
-                            onChange={(e) => setDraftDiagnosis(e.target.value)}
-                            placeholder="Type the official clinical diagnosis here..."
-                            className="w-full text-sm p-2.5 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 resize-none font-medium text-slate-800 bg-white"
-                          />
-                        ) : (
-                          <p className={`text-sm font-medium leading-relaxed ${visit.diagnosis === "Pending Notes" ? 'text-amber-600 italic' : 'text-slate-700'}`}>
-                            {visit.diagnosis || 'No additional clinical notes provided.'}
-                          </p>
+                            <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-xl">
+                              <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Clinical Diagnosis / Notes</span>
+                                
+                                {editingHistoryId === visit.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <button 
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setEditingHistoryId(null); }}
+                                      className="text-[10px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button 
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); handleSaveNote(visit.id); }}
+                                      disabled={isSavingNote}
+                                      className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1 rounded-md shadow-sm disabled:opacity-50 cursor-pointer"
+                                    >
+                                      {isSavingNote ? 'Saving...' : 'Save Note'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    type="button"
+                                    onClick={(e) => { 
+                                      e.stopPropagation(); 
+                                      setEditingHistoryId(visit.id);
+                                      setDraftDiagnosis(visit.diagnosis === "Pending Notes" ? "" : visit.diagnosis);
+                                    }}
+                                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    Edit Note
+                                  </button>
+                                )}
+                              </div>
+
+                              {editingHistoryId === visit.id ? (
+                                <textarea 
+                                  autoFocus
+                                  rows="3"
+                                  value={draftDiagnosis}
+                                  onChange={(e) => setDraftDiagnosis(e.target.value)}
+                                  placeholder="Type the official clinical diagnosis here..."
+                                  className="w-full text-sm p-2.5 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 resize-none font-medium text-slate-800 bg-white"
+                                />
+                              ) : (
+                                <p className={`text-sm font-medium leading-relaxed ${visit.diagnosis === "Pending Notes" ? 'text-amber-600 italic' : 'text-slate-700'}`}>
+                                  {visit.diagnosis || 'No additional clinical notes provided.'}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         )}
-                      </div>
 
-                    </div>
-                  ))
+                      </div>
+                    );
+                  })
                 ) : (
-                  <div className="text-center py-10 text-sm text-slate-500 italic border-2 border-dashed border-slate-200 rounded-2xl">
+                  <div className="text-center py-10 text-sm text-slate-500 italic border-2 border-dashed border-slate-200 rounded-2xl bg-white">
                     No historical treatments recorded for this patient.
                   </div>
                 )}
