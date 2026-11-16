@@ -21,8 +21,12 @@ const AdminRecords = ({ admin, setAdmin }) => {
   const [draftDiagnosis, setDraftDiagnosis] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
 
-  // 🔑 Accordion State: Keep track of which visit IDs are expanded in the modal
-  const [expandedVisits, setExpandedVisits] = useState({});
+  // 🔑 3 Category Accordion States for the Master File Modal
+  const [openSections, setOpenSections] = useState({
+    history: true,
+    prescriptions: false,
+    photos: false
+  });
 
   // 🔑 Helper to prevent timezone off-by-one date shifts
   const formatDate = (dateString) => {
@@ -105,28 +109,19 @@ const AdminRecords = ({ admin, setAdmin }) => {
     setSelectedPatient(patientRecord);
     setIsModalOpen(true);
     setEditingHistoryId(null);
-
-    // Automatically expand the latest visit (index 0 of reversed history) by default
-    if (patientRecord.history && patientRecord.history.length > 0) {
-      const reversed = [...patientRecord.history].reverse();
-      const latestId = reversed[0].id || 0;
-      setExpandedVisits({ [latestId]: true });
-    } else {
-      setExpandedVisits({});
-    }
+    setOpenSections({ history: true, prescriptions: false, photos: false });
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedPatient(null);
     setEditingHistoryId(null);
-    setExpandedVisits({});
   };
 
-  const toggleVisitAccordion = (visitId) => {
-    setExpandedVisits(prev => ({
+  const toggleSection = (sectionKey) => {
+    setOpenSections(prev => ({
       ...prev,
-      [visitId]: !prev[visitId]
+      [sectionKey]: !prev[sectionKey]
     }));
   };
 
@@ -321,173 +316,223 @@ const AdminRecords = ({ admin, setAdmin }) => {
               </button>
             </div>
 
-            <div className="p-8 overflow-y-auto bg-slate-50">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Completed Treatment History</h3>
+            <div className="p-8 overflow-y-auto bg-slate-50 space-y-6">
               
-              {/* 🔑 ITEM 11: COLLAPSIBLE ACCORDION VISIT HISTORY */}
-              <div className="space-y-3">
-                {selectedPatient.history && selectedPatient.history.length > 0 ? (
-                  [...selectedPatient.history].reverse().map((visit, idx) => {
-                    const isExpanded = !!expandedVisits[visit.id];
+              {/* ========================================== */}
+              {/* CATEGORY 1: COMPLETED TREATMENT HISTORY    */}
+              {/* ========================================== */}
+              <div className="bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('history')}
+                  className="w-full px-6 py-4 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-900 uppercase tracking-wider">
+                      📁 1. Completed Treatment History
+                    </span>
+                    <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                      {selectedPatient.history?.length || 0}
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold text-slate-600">
+                    {openSections.history ? '▲ Collapse' : '▼ Expand'}
+                  </span>
+                </button>
 
-                    return (
-                      <div key={idx} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden transition-all">
-                        
-                        {/* Accordion Header / Click to Toggle */}
-                        <div 
-                          onClick={() => toggleVisitAccordion(visit.id)}
-                          className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-slate-50 cursor-pointer transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider">
-                              {formatDate(visit.date)}
-                            </span>
-                            <span className="text-sm font-bold text-slate-900">{visit.treatment}</span>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold text-slate-500 hidden sm:inline">Ref: {visit.id}</span>
-                            <span className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold transition-transform">
-                              {isExpanded ? '▲' : '▼'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Accordion Body / Expandable Content */}
-                        {isExpanded && (
-                          <div className="px-5 pb-5 pt-2 border-t border-slate-100 bg-white space-y-3 animate-fadeIn">
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md">
-                                👩‍⚕️ Attending: {visit.dentist}
+                {openSections.history && (
+                  <div className="p-6 space-y-4 bg-slate-50/50">
+                    {selectedPatient.history && selectedPatient.history.length > 0 ? (
+                      [...selectedPatient.history].reverse().map((visit, idx) => (
+                        <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-3">
+                              <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider">
+                                {formatDate(visit.date)}
                               </span>
+                              <span className="text-xs font-semibold text-slate-500">Ref: {visit.id}</span>
                             </div>
+                            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md">
+                              Attending: {visit.dentist}
+                            </span>
+                          </div>
+                          
+                          <div className="mb-2">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Procedure</span>
+                            <p className="text-base font-bold text-slate-900">{visit.treatment}</p>
+                          </div>
 
-                            <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-xl">
-                              <div className="flex justify-between items-center mb-1.5">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Clinical Diagnosis / Notes</span>
-                                
-                                {editingHistoryId === visit.id ? (
-                                  <div className="flex items-center gap-2">
-                                    <button 
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); setEditingHistoryId(null); }}
-                                      className="text-[10px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button 
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); handleSaveNote(visit.id); }}
-                                      disabled={isSavingNote}
-                                      className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1 rounded-md shadow-sm disabled:opacity-50 cursor-pointer"
-                                    >
-                                      {isSavingNote ? 'Saving...' : 'Save Note'}
-                                    </button>
-                                  </div>
-                                ) : (
+                          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mt-3">
+                            <div className="flex justify-between items-center mb-1.5">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Clinical Diagnosis / Notes</span>
+                              
+                              {editingHistoryId === visit.id ? (
+                                <div className="flex items-center gap-2">
                                   <button 
                                     type="button"
-                                    onClick={(e) => { 
-                                      e.stopPropagation(); 
-                                      setEditingHistoryId(visit.id);
-                                      setDraftDiagnosis(visit.diagnosis === "Pending Notes" ? "" : visit.diagnosis);
-                                    }}
-                                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                    onClick={() => setEditingHistoryId(null)}
+                                    className="text-[10px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
                                   >
-                                    Edit Note
+                                    Cancel
                                   </button>
-                                )}
-                              </div>
-
-                              {editingHistoryId === visit.id ? (
-                                <textarea 
-                                  autoFocus
-                                  rows="3"
-                                  value={draftDiagnosis}
-                                  onChange={(e) => setDraftDiagnosis(e.target.value)}
-                                  placeholder="Type the official clinical diagnosis here..."
-                                  className="w-full text-sm p-2.5 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 resize-none font-medium text-slate-800 bg-white"
-                                />
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleSaveNote(visit.id)}
+                                    disabled={isSavingNote}
+                                    className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1 rounded-md shadow-sm disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isSavingNote ? 'Saving...' : 'Save Note'}
+                                  </button>
+                                </div>
                               ) : (
-                                <p className={`text-sm font-medium leading-relaxed ${visit.diagnosis === "Pending Notes" ? 'text-amber-600 italic' : 'text-slate-700'}`}>
-                                  {visit.diagnosis || 'No additional clinical notes provided.'}
-                                </p>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingHistoryId(visit.id);
+                                    setDraftDiagnosis(visit.diagnosis === "Pending Notes" ? "" : visit.diagnosis);
+                                  }}
+                                  className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                >
+                                  Edit Note
+                                </button>
                               )}
                             </div>
-                          </div>
-                        )}
 
+                            {editingHistoryId === visit.id ? (
+                              <textarea 
+                                autoFocus
+                                rows="3"
+                                value={draftDiagnosis}
+                                onChange={(e) => setDraftDiagnosis(e.target.value)}
+                                placeholder="Type the official clinical diagnosis here..."
+                                className="w-full text-sm p-2.5 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 resize-none font-medium text-slate-800 bg-white"
+                              />
+                            ) : (
+                              <p className={`text-sm font-medium leading-relaxed ${visit.diagnosis === "Pending Notes" ? 'text-amber-600 italic' : 'text-slate-700'}`}>
+                                {visit.diagnosis || 'No additional clinical notes provided.'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-10 text-sm text-slate-500 italic border-2 border-dashed border-slate-200 rounded-2xl bg-white">
+                        No historical treatments recorded for this patient.
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-center py-10 text-sm text-slate-500 italic border-2 border-dashed border-slate-200 rounded-2xl bg-white">
-                    No historical treatments recorded for this patient.
+                    )}
                   </div>
                 )}
               </div>
 
-              {selectedPatient.prescriptions && selectedPatient.prescriptions.length > 0 && (
-                <div className="mt-10">
-                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Issued Prescriptions</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedPatient.prescriptions.map((script, idx) => (
-                      <div key={idx} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition-colors">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-sm font-bold text-slate-900">{script.medicine}</span>
-                          <span className="text-[10px] text-slate-500 font-semibold">{formatDate(script.date)}</span>
-                        </div>
-                        <p className="text-xs text-slate-600 font-medium mb-2">Dosage: {script.dosage}</p>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                          script.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {script.status || 'Archived'}
-                        </span>
-                      </div>
-                    ))}
+              {/* ========================================== */}
+              {/* CATEGORY 2: ISSUED PRESCRIPTIONS           */}
+              {/* ========================================== */}
+              <div className="bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('prescriptions')}
+                  className="w-full px-6 py-4 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-900 uppercase tracking-wider">
+                      💊 2. Issued Prescriptions
+                    </span>
+                    <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                      {selectedPatient.prescriptions?.length || 0}
+                    </span>
                   </div>
-                </div>
-              )}
+                  <span className="text-xs font-bold text-slate-600">
+                    {openSections.prescriptions ? '▲ Collapse' : '▼ Expand'}
+                  </span>
+                </button>
 
-              {/* PATIENT UPLOADED PHOTOS MODULE WITH FIXED LOCALHOST URLS */}
-              <div className="mt-10">
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
-                  <span>📸</span> Patient Uploaded Photos & Images
-                </h3>
-                
-                {selectedPatient.photos && selectedPatient.photos.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {selectedPatient.photos.map((photo, index) => {
-                      const resolvedUrl = getImageUrl(photo.url || photo);
-                      return (
-                        <div key={index} className="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col gap-2 shadow-sm">
-                          <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-slate-100">
-                            <img 
-                              src={resolvedUrl} 
-                              alt="Patient uploaded medical document" 
-                              className="w-full h-32 object-cover hover:scale-105 transition-transform duration-300"
-                            />
-                          </a>
-                          <div className="flex justify-between items-center px-1">
-                            <span className="text-[10px] text-slate-400 font-bold">
-                              {photo.date ? formatDate(photo.date) : 'Uploaded Image'}
+                {openSections.prescriptions && (
+                  <div className="p-6 bg-slate-50/50">
+                    {selectedPatient.prescriptions && selectedPatient.prescriptions.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {selectedPatient.prescriptions.map((script, idx) => (
+                          <div key={idx} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition-colors">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="text-sm font-bold text-slate-900">{script.medicine}</span>
+                              <span className="text-[10px] text-slate-500 font-semibold">{formatDate(script.date)}</span>
+                            </div>
+                            <p className="text-xs text-slate-600 font-medium mb-2">Dosage: {script.dosage}</p>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                              script.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {script.status || 'Archived'}
                             </span>
-                            <a 
-                              href={resolvedUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-[10px] font-bold text-blue-600 hover:underline"
-                            >
-                              View Full
-                            </a>
                           </div>
-                        </div>
-                      );
-                    })}
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl bg-white">
+                        No prescriptions issued for this patient.
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl bg-white">
-                    No photos have been uploaded by this patient yet.
+                )}
+              </div>
+
+              {/* ========================================== */}
+              {/* CATEGORY 3: PATIENT UPLOADED PHOTOS        */}
+              {/* ========================================== */}
+              <div className="bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('photos')}
+                  className="w-full px-6 py-4 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-900 uppercase tracking-wider">
+                      📸 3. Patient Uploaded Photos & Images
+                    </span>
+                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                      {selectedPatient.photos?.length || 0}
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold text-slate-600">
+                    {openSections.photos ? '▲ Collapse' : '▼ Expand'}
+                  </span>
+                </button>
+
+                {openSections.photos && (
+                  <div className="p-6 bg-slate-50/50">
+                    {selectedPatient.photos && selectedPatient.photos.length > 0 ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {selectedPatient.photos.map((photo, index) => {
+                          const resolvedUrl = getImageUrl(photo.url || photo);
+                          return (
+                            <div key={index} className="bg-white border border-slate-200 rounded-2xl p-2.5 flex flex-col gap-2 shadow-sm">
+                              <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-slate-100">
+                                <img 
+                                  src={resolvedUrl} 
+                                  alt="Patient uploaded medical document" 
+                                  className="w-full h-32 object-cover hover:scale-105 transition-transform duration-300"
+                                />
+                              </a>
+                              <div className="flex justify-between items-center px-1">
+                                <span className="text-[10px] text-slate-400 font-bold">
+                                  {photo.date ? formatDate(photo.date) : 'Uploaded Image'}
+                                </span>
+                                <a 
+                                  href={resolvedUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-[10px] font-bold text-blue-600 hover:underline"
+                                >
+                                  View Full
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-xs text-slate-400 italic font-medium border-2 border-dashed border-slate-200 rounded-2xl bg-white">
+                        No photos have been uploaded by this patient yet.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

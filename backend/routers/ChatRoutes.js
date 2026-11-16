@@ -1,11 +1,11 @@
 import express from 'express';
 
-// 🔑 Now, EVERYTHING imports from the chatController so they share the same database!
 import { 
   getChatHistory, 
   sendMessage,
   getChats, 
-  replyToChat 
+  replyToChat,
+  markMessagesAsRead // 🔑 Imported missing markMessagesAsRead controller
 } from '../controllers/chatController.js';
 
 const router = express.Router();
@@ -15,6 +15,7 @@ const router = express.Router();
 // ==========================================
 router.get('/patient/:patientId', getChatHistory);
 router.post('/', sendMessage);
+router.patch('/patient/:patientId/read', markMessagesAsRead); // 🔑 Registered route to clear red badges
 
 // ==========================================
 // ADMIN-FACING ROUTES

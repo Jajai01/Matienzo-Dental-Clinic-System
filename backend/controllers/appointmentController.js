@@ -16,7 +16,9 @@ const createTransporter = () => {
     auth: {
       user: 'matienzo.dentalclinic@gmail.com',
       pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''
-    }
+    },
+    connectionTimeout: 10000, // 🔑 10 seconds max connection wait to prevent hanging
+    socketTimeout: 10000      // 🔑 10 seconds max socket wait
   });
 };
 
@@ -77,123 +79,132 @@ export const createAppointment = async (req, res) => {
     const savedAppointment = await appointment.save();
     
     // ==========================================
-    // TRIGGER EMAIL NOTIFICATIONS
+    // 🔑 RESPOND IMMEDIATELY (Prevent HTTP Timeout)
     // ==========================================
-
-    const patientHtmlTemplate = `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
-        <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
-          <div style="background-color: #0f172a; padding: 30px; text-align: center; border-bottom: 4px solid #D4AF37;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">Matienzo Dental Clinic</h1>
-            <p style="color: #D4AF37; margin: 8px 0 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">Appointment Request Received</p>
-          </div>
-          <div style="padding: 40px 30px;">
-            <h2 style="color: #0f172a; margin-top: 0;">Hello ${patientName},</h2>
-            <p style="color: #475569; line-height: 1.6; font-size: 15px;">
-              Thank you for choosing Matienzo Dental Clinic. We have successfully received your appointment request. Our admin team will review it shortly and send you a final confirmation once approved.
-            </p>
-            <div style="background-color: #f1f5f9; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 0 8px 8px 0; margin: 30px 0;">
-              <p style="margin: 0 0 10px 0; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: bold;">Reservation Details</p>
-              <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Service:</strong> ${service}</p>
-              <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Date:</strong> ${selectedDate}</p>
-              <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Time:</strong> ${selectedTimeSlot}</p>
-              <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Dentist:</strong> ${dentist}</p>
-              <p style="margin: 15px 0 0 0; color: #0f172a; font-size: 14px; border-top: 1px solid #cbd5e1; padding-top: 10px;"><strong>Reference Code:</strong> <span style="color: #3b82f6; font-family: monospace; font-size: 16px;">${savedAppointment.referenceCode || savedAppointment._id}</span></p>
-            </div>
-            <p style="color: #475569; font-size: 13px; line-height: 1.5;">
-              <strong>Clinic Guideline Reminder:</strong> Please arrive 15 minutes prior to your scheduled time. If you need to cancel, kindly do so through your patient dashboard at least 24 hours in advance.
-            </p>
-          </div>
-          <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
-            <p style="color: #94a3b8; font-size: 12px; margin: 0;">Matienzo Compound, Sitio 1 Brgy San Juan, Santa Cruz, Laguna</p>
-            <p style="color: #94a3b8; font-size: 12px; margin: 5px 0 0 0;">This is an automated message, please do not reply directly to this email.</p>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const clinicHtmlTemplate = `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
-        <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
-          <div style="background-color: #D4AF37; padding: 20px; text-align: center;">
-            <h2 style="color: #0f172a; margin: 0; font-size: 20px; letter-spacing: 1px;">New Action Required</h2>
-            <p style="color: #0f172a; margin: 5px 0 0 0; font-size: 13px; opacity: 0.8;">A new appointment is pending review</p>
-          </div>
-          <div style="padding: 30px;">
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b; width: 120px;">Patient Name</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #0f172a; font-weight: bold;">${patientName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Service</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #0f172a;">${service}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Requested Date</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #3b82f6; font-weight: bold;">${selectedDate}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Time Slot</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #3b82f6; font-weight: bold;">${selectedTimeSlot}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Reference</td>
-                <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #0f172a; font-family: monospace;">${savedAppointment.referenceCode || savedAppointment._id}</td>
-              </tr>
-            </table>
-            <div style="margin-top: 20px; background-color: #f1f5f9; padding: 15px; border-radius: 8px;">
-              <p style="margin: 0; color: #64748b; font-size: 12px; font-weight: bold; text-transform: uppercase;">Medical Notes / Symptoms</p>
-              <p style="margin: 8px 0 0 0; color: #0f172a; font-size: 14px; font-style: italic;">"${notes || 'None provided.'}"</p>
-            </div>
-            <div style="margin-top: 30px; text-align: center;">
-              <p style="color: #475569; font-size: 13px;">Please log in to the Clinic Master Schedule dashboard to review, confirm, or reschedule this reservation.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const activeTransporter = createTransporter();
-    const emailPromises = [];
-
-    emailPromises.push(
-      activeTransporter.sendMail({
-        from: '"Matienzo Dental System" <matienzo.dentalclinic@gmail.com>',
-        to: 'matienzo.dentalclinic@gmail.com',
-        subject: `New Appointment Request: ${patientName}`,
-        html: clinicHtmlTemplate
-      })
-    );
-
-    if (patientEmail) {
-      emailPromises.push(
-        activeTransporter.sendMail({
-          from: '"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>',
-          to: patientEmail, 
-          subject: `Appointment Request Received: ${service}`,
-          html: patientHtmlTemplate
-        })
-      );
-    }
-
-    Promise.all(emailPromises)
-      .then(() => console.log("All appointment notifications dispatched successfully."))
-      .catch((err) => console.error("Email notification dispatch failed:", err));
-
-    return res.status(201).json({ 
+    res.status(201).json({ 
       success: true, 
       message: "Appointment created successfully.", 
       appointment: savedAppointment 
     });
 
+    // ==========================================
+    // TRIGGER EMAIL NOTIFICATIONS ASYNCHRONOUSLY
+    // ==========================================
+    setImmediate(async () => {
+      try {
+        const patientHtmlTemplate = `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
+            <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+              <div style="background-color: #0f172a; padding: 30px; text-align: center; border-bottom: 4px solid #D4AF37;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">Matienzo Dental Clinic</h1>
+                <p style="color: #D4AF37; margin: 8px 0 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">Appointment Request Received</p>
+              </div>
+              <div style="padding: 40px 30px;">
+                <h2 style="color: #0f172a; margin-top: 0;">Hello ${patientName},</h2>
+                <p style="color: #475569; line-height: 1.6; font-size: 15px;">
+                  Thank you for choosing Matienzo Dental Clinic. We have successfully received your appointment request. Our admin team will review it shortly and send you a final confirmation once approved.
+                </p>
+                <div style="background-color: #f1f5f9; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 0 8px 8px 0; margin: 30px 0;">
+                  <p style="margin: 0 0 10px 0; color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: bold;">Reservation Details</p>
+                  <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Service:</strong> ${service}</p>
+                  <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Date:</strong> ${selectedDate}</p>
+                  <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Time:</strong> ${selectedTimeSlot}</p>
+                  <p style="margin: 5px 0; color: #0f172a; font-size: 15px;"><strong>Dentist:</strong> ${dentist}</p>
+                  <p style="margin: 15px 0 0 0; color: #0f172a; font-size: 14px; border-top: 1px solid #cbd5e1; padding-top: 10px;"><strong>Reference Code:</strong> <span style="color: #3b82f6; font-family: monospace; font-size: 16px;">${savedAppointment.referenceCode || savedAppointment._id}</span></p>
+                </div>
+                <p style="color: #475569; font-size: 13px; line-height: 1.5;">
+                  <strong>Clinic Guideline Reminder:</strong> Please arrive 15 minutes prior to your scheduled time. If you need to cancel, kindly do so through your patient dashboard at least 24 hours in advance.
+                </p>
+              </div>
+              <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
+                <p style="color: #94a3b8; font-size: 12px; margin: 0;">Matienzo Compound, Sitio 1 Brgy San Juan, Santa Cruz, Laguna</p>
+                <p style="color: #94a3b8; font-size: 12px; margin: 5px 0 0 0;">This is an automated message, please do not reply directly to this email.</p>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const clinicHtmlTemplate = `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
+            <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+              <div style="background-color: #D4AF37; padding: 20px; text-align: center;">
+                <h2 style="color: #0f172a; margin: 0; font-size: 20px; letter-spacing: 1px;">New Action Required</h2>
+                <p style="color: #0f172a; margin: 5px 0 0 0; font-size: 13px; opacity: 0.8;">A new appointment is pending review</p>
+              </div>
+              <div style="padding: 30px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b; width: 120px;">Patient Name</td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #0f172a; font-weight: bold;">${patientName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Service</td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #0f172a;">${service}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Requested Date</td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #3b82f6; font-weight: bold;">${selectedDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Time Slot</td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #3b82f6; font-weight: bold;">${selectedTimeSlot}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #64748b;">Reference</td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; color: #0f172a; font-family: monospace;">${savedAppointment.referenceCode || savedAppointment._id}</td>
+                  </tr>
+                </table>
+                <div style="margin-top: 20px; background-color: #f1f5f9; padding: 15px; border-radius: 8px;">
+                  <p style="margin: 0; color: #64748b; font-size: 12px; font-weight: bold; text-transform: uppercase;">Medical Notes / Symptoms</p>
+                  <p style="margin: 8px 0 0 0; color: #0f172a; font-size: 14px; font-style: italic;">"${notes || 'None provided.'}"</p>
+                </div>
+                <div style="margin-top: 30px; text-align: center;">
+                  <p style="color: #475569; font-size: 13px;">Please log in to the Clinic Master Schedule dashboard to review, confirm, or reschedule this reservation.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const activeTransporter = createTransporter();
+        const emailPromises = [];
+
+        emailPromises.push(
+          activeTransporter.sendMail({
+            from: '"Matienzo Dental System" <matienzo.dentalclinic@gmail.com>',
+            to: 'matienzo.dentalclinic@gmail.com',
+            subject: `New Appointment Request: ${patientName}`,
+            html: clinicHtmlTemplate
+          })
+        );
+
+        if (patientEmail) {
+          emailPromises.push(
+            activeTransporter.sendMail({
+              from: '"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>',
+              to: patientEmail, 
+              subject: `Appointment Request Received: ${service}`,
+              html: patientHtmlTemplate
+            })
+          );
+        }
+
+        await Promise.all(emailPromises);
+        console.log("All appointment notifications dispatched successfully.");
+      } catch (err) {
+        console.error("Email notification dispatch failed:", err.message);
+      }
+    });
+
   } catch (error) {
     console.error("Error inside createAppointment controller:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Internal server error processing the appointment request.", 
-      error: error.message 
-    });
+    if (!res.headersSent) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Internal server error processing the appointment request.", 
+        error: error.message 
+      });
+    }
   }
 };
 
@@ -405,7 +416,7 @@ export const updateAppointmentStatus = async (req, res) => {
           });
           console.log("✅ Email successfully sent! Response:", info.response);
         } catch (emailErr) {
-          console.error("🚨 NODEMAILER CRASH ERROR:", emailErr);
+          console.error("🚨 NODEMAILER CRASH ERROR:", emailErr.message);
         }
       } else {
         console.log("❌ Skipping email: No recipient email address found for this patient.");
@@ -422,7 +433,7 @@ export const updateAppointmentStatus = async (req, res) => {
       };
 
       console.log("4. Attempting to push to Medical Records...");
-      const updatedRecord = await MedicalRecord.findOneAndUpdate(
+      await MedicalRecord.findOneAndUpdate(
         { patientId: appointment.patientId },
         { 
           $push: { history: historyEntry },

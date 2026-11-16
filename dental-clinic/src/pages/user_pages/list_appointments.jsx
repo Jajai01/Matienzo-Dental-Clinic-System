@@ -8,6 +8,10 @@ const ListAppointments = ({ user, setUser }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('All'); 
 
+  // 🔑 Pagination States (Capped at 20 per tab)
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
   // 1. 🧠 FETCH DATA ON PAGE LOAD
   useEffect(() => {
     const fetchAppointments = async () => {
@@ -18,7 +22,6 @@ const ListAppointments = ({ user, setUser }) => {
           return;
         }
 
-        // Hitting the exact same endpoint we created in the appointmentController
         const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/appointments/patient/${patientId}`);
         setAppointments(response.data.appointments);
         
@@ -31,6 +34,11 @@ const ListAppointments = ({ user, setUser }) => {
 
     fetchAppointments();
   }, [user]);
+
+  // 🔑 Reset page to 1 whenever the filter tab changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
 
   // --- Visual Helper Functions ---
   const getAdminStatusBadge = (status) => {
@@ -55,6 +63,11 @@ const ListAppointments = ({ user, setUser }) => {
     if (filter === 'Unpaid') return appt.paymentStatus === 'Unpaid' && appt.status !== 'Cancelled';
     return appt.status === filter;
   });
+
+  // 🔑 Pagination Calculations (Capped at 20)
+  const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const currentAppointments = filteredAppointments.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="flex w-full min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
@@ -92,7 +105,7 @@ const ListAppointments = ({ user, setUser }) => {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-4 py-2 rounded-full text-xs font-bold border transition-all ${
+                className={`px-4 py-2 rounded-full text-xs font-bold border transition-all cursor-pointer ${
                   filter === f 
                     ? 'bg-slate-800 text-white border-slate-800 shadow-md' 
                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
@@ -129,8 +142,8 @@ const ListAppointments = ({ user, setUser }) => {
                         Loading ledger...
                       </td>
                     </tr>
-                  ) : filteredAppointments.length > 0 ? (
-                    filteredAppointments.map((appt) => (
+                  ) : currentAppointments.length > 0 ? (
+                    currentAppointments.map((appt) => (
                       <tr key={appt._id} className="hover:bg-slate-50/50 transition-colors">
                         
                         {/* 1. Reference ID */}
@@ -162,7 +175,7 @@ const ListAppointments = ({ user, setUser }) => {
                           </span>
                         </td>
 
-                        {/* 5. Cleaned Details Column (Settle Bill removed) */}
+                        {/* 5. Details Column */}
                         <td className="px-6 py-5 text-right">
                           <span className="text-xs text-slate-400 font-medium italic">
                             Logged in system
@@ -183,10 +196,33 @@ const ListAppointments = ({ user, setUser }) => {
               </table>
             </div>
 
-            {/* Table Footer / Pagination Spacer */}
-            <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 flex items-center justify-between text-xs font-medium text-slate-500">
-              <span>Showing {filteredAppointments.length} records</span>
-              <span className="text-slate-400">Matienzo Dental Secure Ledger</span>
+            {/* 🔑 PAGINATION FOOTER (Capped at 20 per page) */}
+            <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 flex items-center justify-between text-xs font-bold text-slate-600">
+              <span>
+                Showing {filteredAppointments.length > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + itemsPerPage, filteredAppointments.length)} of {filteredAppointments.length} records (Capped at 20 per tab)
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm"
+                >
+                  Previous
+                </button>
+
+                <span className="text-slate-500 font-semibold px-2">
+                  Page {currentPage} of {totalPages || 1}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm"
+                >
+                  Next
+                </button>
+              </div>
             </div>
             
           </div>

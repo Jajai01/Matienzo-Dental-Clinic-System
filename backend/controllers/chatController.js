@@ -25,10 +25,15 @@ export const getChatHistory = async (req, res) => {
 // @route   POST /api/chats
 export const sendMessage = async (req, res) => {
   try {
-    const { patientId, text, message, time } = req.body;
+    const { patientId, text, message, time, date } = req.body;
     
     // Safely grab the text whether the frontend sent 'text' or 'message'
     const finalMessageText = text || message;
+
+    // 🔑 Auto-generate date and time if not provided by the frontend
+    const now = new Date();
+    const formattedDate = date || now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const formattedTime = time || now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
     // Find the existing chat thread, or create a new one if it's the first message
     let chat = await Chat.findOne({ patientId });
@@ -40,7 +45,9 @@ export const sendMessage = async (req, res) => {
     chat.messages.push({
       sender: 'patient',
       text: finalMessageText,
-      time: time
+      time: formattedTime,
+      date: formattedDate,
+      read: false
     });
 
     await chat.save();
@@ -100,17 +107,24 @@ export const getChats = async (req, res) => {
 // @route   POST /api/chats/:id/message
 export const replyToChat = async (req, res) => {
   try {
-    const { text, time } = req.body;
+    const { text, time, date } = req.body;
     
     const chat = await Chat.findById(req.params.id);
     if (!chat) {
       return res.status(404).json({ success: false, message: "Chat not found" });
     }
 
+    // 🔑 Auto-generate date and time if not provided by the frontend
+    const now = new Date();
+    const formattedDate = date || now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const formattedTime = time || now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
     chat.messages.push({
       sender: 'doctor',
       text,
-      time
+      time: formattedTime,
+      date: formattedDate,
+      read: false
     });
 
     await chat.save();
@@ -120,6 +134,8 @@ export const replyToChat = async (req, res) => {
   }
 };
 
+// @desc    Mark messages as read to clear notification red badges
+// @route   PATCH /api/chats/patient/:patientId/read
 export const markMessagesAsRead = async (req, res) => {
   try {
     const { patientId } = req.params;
