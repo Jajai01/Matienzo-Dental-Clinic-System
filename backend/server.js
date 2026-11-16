@@ -36,7 +36,9 @@ const app = express();
 app.use(cors({
   origin: [
     "https://matienzo-dental-clinic-system.vercel.app", 
-    "http://localhost:5173" // allows local development too
+    "http://localhost:5173",
+    'http://localhost:8081',    // Expo web default port
+    'http://localhost:19006', // allows local development too
   ],
   credentials: true,             // Required for cookies/auth headers
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
