@@ -44,7 +44,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.options('*', cors());
+app.options(/(.*)/, cors());
 
 // Express body parser middleware with increased limit for uploads
 app.use(express.json({ limit: '15mb' }));
