@@ -37,9 +37,15 @@ const allowedOrigins = [
   "http://localhost:19006"
 ];
 
-// 🌐 CORS Configuration (Must be first)
+// 🌐 CORS Configuration (Supports Web, Mobile Apps, and Expo Clients)
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('exp://')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -87,8 +93,8 @@ app.use('/api/testimonials', testimonialRoutes);
 app.use((err, req, res, next) => {
   console.error("Server Error:", err.stack || err.message);
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  if (!origin || allowedOrigins.includes(origin) || origin.startsWith('exp://')) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   res.status(err.status || 500).json({
