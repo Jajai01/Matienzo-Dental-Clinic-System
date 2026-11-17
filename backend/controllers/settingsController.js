@@ -1,25 +1,45 @@
 import crypto from 'crypto';
 import Appointment from '../models/appointments.js';
 import { MedicalRecord } from '../models/MedicalData.js';
-import nodemailer from 'nodemailer';
 import User from '../models/user.js';
 import mongoose from 'mongoose';
 import ClinicSettings from '../models/clinicSettings.js';
 
 // ==========================================
-// ROBUST EMAIL TRANSPORTER CONFIGURATION
+// BREVO HTTPS EMAIL HELPER (Bypasses Render SMTP Block)
 // ==========================================
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // true for port 465
-    family: 4,    // Forces IPv4 to prevent hanging/timeouts on Render
-    auth: {
-      user: 'matienzo.dentalclinic@gmail.com',
-      pass: process.env.EMAIL_PASS
-    }
+const sendBrevoEmail = async ({ senderName = 'Matienzo Dental Admin', to, subject, html }) => {
+  const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : '';
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is missing in Render environment variables.');
+  }
+
+  const senderEmail = process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: {
+        name: senderName,
+        email: senderEmail
+      },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html
+    })
   });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(data)}`);
+  }
+
+  return data;
 };
 
 /**
@@ -29,12 +49,12 @@ const createTransporter = () => {
  */
 export const exportResearchData = async (req, res) => {
   try {
-    const { 
-      includeAppointments, 
-      includeMedicalHistory, 
-      includeFinancials, 
-      anonymizeData, 
-      format 
+    const {
+      includeAppointments,
+      includeMedicalHistory,
+      includeFinancials,
+      anonymizeData,
+      format
     } = req.body;
 
     let payload = {};
@@ -104,22 +124,30 @@ export const exportResearchData = async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', 'attachment; filename="clinic_research_export.json"');
       return res.status(200).send(JSON.stringify(payload, null, 2));
-    } 
-    
+    }
+
     if (format === 'csv') {
       if (!payload.appointments || payload.appointments.length === 0) {
-        return res.status(400).json({ success: false, message: "No appointment data available to generate CSV based on current filters." });
+        return res.status(400).json({
+          success: false,
+          message: "No appointment data available to generate CSV based on current filters."
+        });
       }
 
       const headers = Object.keys(payload.appointments[0]).join(',');
-      const rows = payload.appointments.map(apt => Object.values(apt).join(',')).join('\n');
+      const rows = payload.appointments
+        .map(apt =>
+          Object.values(apt)
+            .map(val => JSON.stringify(val ?? ''))
+            .join(',')
+        )
+        .join('\n');
       const csvString = `${headers}\n${rows}`;
 
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename="clinic_research_export.csv"');
       return res.status(200).send(csvString);
     }
-
   } catch (error) {
     console.error("Data Export Error:", error);
     return res.status(500).json({ success: false, message: "Server error during data extraction." });
@@ -127,7 +155,7 @@ export const exportResearchData = async (req, res) => {
 };
 
 /**
- * @desc    Send IT Support Ticket to Developer
+ * @desc    Send IT Support Ticket to Developer via Brevo HTTPS API
  * @route   POST /api/settings/support-ticket
  * @access  Protected (Admin)
  */
@@ -135,35 +163,36 @@ export const submitSupportTicket = async (req, res) => {
   try {
     const { subject, urgency, message, adminName } = req.body;
 
-    if (!process.env.EMAIL_PASS) {
-      console.error("❌ EMAIL_PASS environment variable is missing on the server!");
-      return res.status(500).json({ success: false, message: "Server email configuration is missing." });
+    if (!process.env.BREVO_API_KEY) {
+      console.error("❌ BREVO_API_KEY environment variable is missing on the server!");
+      return res.status(500).json({ success: false, message: "Server email configuration (BREVO_API_KEY) is missing." });
     }
 
-    const transporter = createTransporter();
+    const developerEmail = process.env.DEVELOPER_EMAIL || 'lucillerbnq@gmail.com';
 
-    const mailOptions = {
-      from: `"Matienzo Dental Admin" <matienzo.dentalclinic@gmail.com>`,
-      to: 'lucillerbnq@gmail.com',
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+        <h2 style="color: #D4AF37;">New IT Support Ticket</h2>
+        <p><strong>Urgency Level:</strong> <span style="color: ${urgency === 'Critical' ? 'red' : 'black'}; font-weight: bold;">${urgency}</span></p>
+        <p><strong>Submitted By:</strong> ${adminName || 'Admin'}</p>
+        <hr style="border: 1px solid #eee; margin: 15px 0;" />
+        <p><strong>Issue Description:</strong></p>
+        <p style="background-color: #f8fafc; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${message}</p>
+      </div>
+    `;
+
+    const info = await sendBrevoEmail({
+      senderName: 'Matienzo Dental Admin',
+      to: developerEmail,
       subject: `🚨 IT Ticket [${urgency}]: ${subject}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #D4AF37;">New IT Support Ticket</h2>
-          <p><strong>Urgency Level:</strong> <span style="color: ${urgency === 'Critical' ? 'red' : 'black'}; font-weight: bold;">${urgency}</span></p>
-          <p><strong>Submitted By:</strong> ${adminName || 'Admin'}</p>
-          <hr style="border: 1px solid #eee; margin: 15px 0;" />
-          <p><strong>Issue Description:</strong></p>
-          <p style="background-color: #f8fafc; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${message}</p>
-        </div>
-      `
-    };
+      html: htmlContent
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log(`[Admin Ticket] Support ticket successfully sent for: ${subject}`);
-    
+    console.log(`[Admin Ticket] Support ticket sent via Brevo for: ${subject} (Message ID: ${info.messageId})`);
+
     return res.status(200).json({ success: true, message: "Ticket sent securely to the developer." });
   } catch (error) {
-    console.error("Support Ticket Email Error:", error);
+    console.error("Support Ticket Email Error:", error.message);
     return res.status(500).json({ success: false, message: error.message || "Server failed to dispatch email." });
   }
 };
@@ -172,7 +201,7 @@ export const getClinicSettings = async (req, res) => {
   try {
     let settings = await ClinicSettings.findOne();
     if (!settings) {
-      settings = await ClinicSettings.create({}); 
+      settings = await ClinicSettings.create({});
     }
     return res.status(200).json({ success: true, settings });
   } catch (error) {
@@ -204,7 +233,7 @@ export const updateClinicSettings = async (req, res) => {
 export const updateResearchPreference = async (req, res) => {
   try {
     const { allowClinicalResearch } = req.body;
-    
+
     console.log("📥 Updating research preference for User ID:", req.user?._id, "Value:", allowClinicalResearch);
 
     if (!req.user || !req.user._id) {
@@ -221,10 +250,10 @@ export const updateResearchPreference = async (req, res) => {
       return res.status(404).json({ success: false, message: "User record not found." });
     }
 
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({
+      success: true,
       message: "Research preference updated successfully.",
-      allowClinicalResearch: updatedUser.allowClinicalResearch 
+      allowClinicalResearch: updatedUser.allowClinicalResearch
     });
   } catch (error) {
     console.error("Update Research Preference Error:", error);

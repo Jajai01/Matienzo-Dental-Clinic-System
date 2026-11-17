@@ -1,29 +1,49 @@
 import Counter from '../models/counter.js';
-import User from '../models/user.js';       
+import User from '../models/user.js';
 import sendWelcomeEmail from '../utils/sendWelcomeEmail.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-
-// 🔑 NEW IMPORTS for Password Reset
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 
-// 🔑 FIX: Updated to Port 587 and used process.env variables to bypass Google blocks
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-   // true for port 465
-  family: 4,
-  requireTLS: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+// ==========================================
+// BREVO HTTPS EMAIL HELPER (Bypasses Render SMTP Block)
+// ==========================================
+const sendBrevoEmail = async ({ to, subject, html }) => {
+  const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : '';
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is missing in Render environment variables.');
   }
-});
+
+  const senderEmail = process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: {
+        name: 'Matienzo Dental Clinic',
+        email: senderEmail
+      },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html
+    })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(data)}`);
+  }
+
+  return data;
+};
 
 export const registerUser = async (req, res) => {
-  const { 
+  const {
     email,
     password,
     firstName,
@@ -40,7 +60,7 @@ export const registerUser = async (req, res) => {
     medications,
     emergencyName,
     emergencyRelationship,
-    emergencyContact 
+    emergencyContact
   } = req.body;
 
   try {
@@ -49,11 +69,11 @@ export const registerUser = async (req, res) => {
     if (userExists) {
       return res.status(400).json({ message: 'Email already registered.' });
     }
-    
+
     // 2. Generate Serialized Patient ID
     const counter = await Counter.findOneAndUpdate(
-      { id: "patient_id_tracker" }, 
-      { $inc: { seq: 1 } },        
+      { id: "patient_id_tracker" },
+      { $inc: { seq: 1 } },
       { returnDocument: 'after', upsert: true }
     );
 
@@ -61,9 +81,9 @@ export const registerUser = async (req, res) => {
     const assignedPatientId = String(nextAvailableNumber).padStart(4, '0');
 
     // 3. Create and save new user to MongoDB
-    const newUser = new User({ 
+    const newUser = new User({
       email,
-      password, 
+      password,
       firstName,
       middleName,
       lastName,
@@ -79,9 +99,9 @@ export const registerUser = async (req, res) => {
       emergencyName,
       emergencyRelationship,
       emergencyContact,
-      patientId: assignedPatientId 
+      patientId: assignedPatientId
     });
-    
+
     await newUser.save();
 
     // 4. TRIGGER WELCOME EMAIL (Run asynchronously in the background)
@@ -89,13 +109,12 @@ export const registerUser = async (req, res) => {
 
     // 5. Respond to frontend
     res.status(201).json({
-      returnDocument: 'after',
+      success: true,
       message: 'Registration successful! A welcome email has been sent.',
       patientId: assignedPatientId
     });
-
   } catch (error) {
-    console.error("Error during registration:", error); 
+    console.error("Error during registration:", error);
     res.status(500).json({ message: 'Server error during registration.' });
   }
 };
@@ -120,13 +139,13 @@ export const loginUser = async (req, res) => {
     if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
       const token = jwt.sign(
         { role: 'admin', email: process.env.ADMIN_EMAIL },
-        process.env.JWT_SECRET || 'fallback_secret_key',     
-        { expiresIn: '24h' } 
+        process.env.JWT_SECRET || 'fallback_secret_key',
+        { expiresIn: '24h' }
       );
 
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Admin login successful.', 
+      return res.status(200).json({
+        success: true,
+        message: 'Admin login successful.',
         role: 'admin',
         token,
         user: {
@@ -158,12 +177,12 @@ export const loginUser = async (req, res) => {
     const token = jwt.sign(
       { userId: user._id, patientId: user.patientId, role: 'patient' },
       process.env.JWT_SECRET || 'fallback_secret_key',
-      { expiresIn: '1d' } 
+      { expiresIn: '1d' }
     );
 
     // 6. Respond with success, role, token, and non-sensitive user data
     return res.status(200).json({
-      returnDocument: 'after',
+      success: true,
       message: 'Login successful.',
       role: 'patient',
       token,
@@ -177,17 +196,14 @@ export const loginUser = async (req, res) => {
         emergencyName: user.emergencyName,
         emergencyContact: user.emergencyContact,
         emergencyRelationship: user.emergencyRelationship
-      },
+      }
     });
-
   } catch (error) {
     console.log("Login Error:", error);
     return res.status(500).json({ message: 'Server error during login.' });
   }
 };
 
-// Kept as standalone reference if your app references it elsewhere, 
-// but it now points directly to the logic above or acts as a direct alias.
 export const adminAuth = async (req, res) => {
   return loginUser(req, res);
 };
@@ -196,11 +212,11 @@ export const getPatientProfile = async (req, res) => {
   try {
     const { patientId } = req.params;
     const user = await User.findOne({ patientId }).select('-password');
-    
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    
+
     res.status(200).json({ success: true, user });
   } catch (error) {
     console.log("Profile fetch error:", error);
@@ -210,7 +226,7 @@ export const getPatientProfile = async (req, res) => {
 
 export const logoutUser = async (req, res) => {
   try {
-    const { userId } = req.body; 
+    const { userId } = req.body;
     if (userId) {
       await User.findByIdAndUpdate(userId, { isOnline: false });
     }
@@ -223,68 +239,74 @@ export const logoutUser = async (req, res) => {
 export const updateOnlineStatus = async (req, res) => {
   try {
     const { patientId } = req.params;
-    const { isOnline } = req.body; 
-    
+    const { isOnline } = req.body;
+
     await User.findOneAndUpdate({ patientId }, { isOnline });
-    res.status(200).json({ returnDocument: 'after' });
+    res.status(200).json({ success: true });
   } catch (error) {
-    res.status(500).json({ returnDocument: 'before' });
+    res.status(500).json({ success: false });
   }
 };
 
 // ==========================================
-// 🔑 PASSWORD RESET FUNCTIONS
+// 🔑 PASSWORD RESET FUNCTIONS (Converted to Brevo HTTPS API)
 // ==========================================
 
 export const forgotPassword = async (req, res) => {
   try {
     const user = await User.findOne({ email: req.body.email });
     if (!user) {
-      // Return 200 even if user not found to prevent email fishing/scraping
-      return res.status(200).json({ message: "If an account with that email exists, a reset link has been sent." });
+      // Return 200 even if user not found to prevent email enumeration
+      return res.status(200).json({
+        success: true,
+        message: "If an account with that email exists, a reset link has been sent."
+      });
     }
 
     // Generate a secure random reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
-    
-    // Hash token and set it to user document alongside an expiration (e.g., 30 minutes)
+
+    // Hash token and set it to user document alongside an expiration (30 minutes)
     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 30 * 60 * 1000; 
+    user.resetPasswordExpire = Date.now() + 30 * 60 * 1000;
     await user.save();
 
-    // Create the reset URL pointing to your React frontend
-    const resetUrl = `${import.meta.env.VITE_API_URL}/reset-password/${resetToken}`;
+    // Point reset URL to the live Vercel frontend (never import.meta.env on Node)
+    const frontendUrl = process.env.FRONTEND_URL || 'https://matienzo-dental-clinic-system.vercel.app';
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      family: 4,
-      requireTLS: true,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+    // Respond immediately so the frontend never times out
+    res.status(200).json({
+      success: true,
+      message: "If an account with that email exists, a reset link has been sent."
+    });
+
+    // Dispatch password reset email in the background via Brevo
+    setImmediate(async () => {
+      try {
+        await sendBrevoEmail({
+          to: user.email,
+          subject: 'Password Reset Request - Matienzo Dental Clinic',
+          html: `
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+              <h3 style="color: #0f172a;">Hello ${user.firstName},</h3>
+              <p style="color: #475569; line-height: 1.6;">You recently requested a password reset for your Patient Portal account.</p>
+              <p style="color: #475569; line-height: 1.6;">Please click the button below to set a new password. This link will expire in 30 minutes.</p>
+              <a href="${resetUrl}" style="background-color: #D4AF37; color: #1A1510; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block; margin: 16px 0;">Reset My Password</a>
+              <p style="color: #64748b; font-size: 13px;">If you did not request this, please ignore this email and your password will remain unchanged.</p>
+            </div>
+          `
+        });
+        console.log(`✅ Password reset email dispatched via Brevo to ${user.email}`);
+      } catch (emailErr) {
+        console.error("🚨 Brevo forgot-password email failed:", emailErr.message);
       }
     });
-
-    // Send the email
-    await transporter.sendMail({
-      from: `"Matienzo Dental Clinic" <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: 'Password Reset Request - Matienzo Dental Clinic',
-      html: `
-        <h3>Hello ${user.firstName},</h3>
-        <p>You recently requested a password reset for your Patient Portal account.</p>
-        <p>Please click the link below to set a new password. This link will expire in 30 minutes.</p>
-        <a href="${resetUrl}" style="background-color: #D4AF37; color: #1A1510; padding: 10px 20px; text-decoration: none; font-weight: bold; border-radius: 5px; display: inline-block; margin-top: 10px; margin-bottom: 10px;">Reset My Password</a>
-        <p>If you did not request this, please ignore this email and your password will remain unchanged.</p>
-      `
-    });
-
-    res.status(200).json({ success: true, message: "If an account with that email exists, a reset link has been sent." });
   } catch (error) {
-    console.log("Forgot password error:", error);
-    res.status(500).json({ message: "Email could not be sent. Please try again later." });
+    console.error("Forgot password error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Email could not be sent. Please try again later." });
+    }
   }
 };
 
@@ -295,7 +317,7 @@ export const resetPassword = async (req, res) => {
 
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
-      resetPasswordExpire: { $gt: Date.now() } // Ensure token hasn't expired
+      resetPasswordExpire: { $gt: Date.now() }
     });
 
     if (!user) {
@@ -303,16 +325,16 @@ export const resetPassword = async (req, res) => {
     }
 
     user.password = req.body.password;
-    
+
     // Clear the reset token fields so they can't be reused
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
-    
+
     await user.save();
 
     res.status(200).json({ success: true, message: "Password updated successfully! Redirecting to login..." });
   } catch (error) {
-    console.log("Reset password error:", error);
+    console.error("Reset password error:", error);
     res.status(500).json({ message: "Server error updating password." });
   }
 };

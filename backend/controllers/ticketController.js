@@ -1,8 +1,50 @@
 import Ticket from '../models/tickets.js';
-import nodemailer from 'nodemailer';
+
+// ==========================================
+// BREVO HTTPS EMAIL HELPER (Bypasses Render SMTP Block)
+// ==========================================
+const sendBrevoEmail = async ({ senderName = 'Matienzo Dental Support', to, subject, html, replyTo }) => {
+  const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : '';
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is missing in Render environment variables.');
+  }
+
+  const senderEmail = process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+
+  const payload = {
+    sender: {
+      name: senderName,
+      email: senderEmail
+    },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html
+  };
+
+  if (replyTo) {
+    payload.replyTo = { email: replyTo };
+  }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(data)}`);
+  }
+
+  return data;
+};
 
 /**
- * @desc    Create a new support ticket and send email notification
+ * @desc    Create a new support ticket and send email notification via Brevo HTTPS API
  * @route   POST /api/tickets
  * @access  Protected (Patient)
  */
@@ -24,13 +66,13 @@ export const createTicket = async (req, res) => {
     console.log(`[Ticket System] Ticket successfully saved to database with ID: ${newTicket._id}`);
 
     // 2. Respond immediately to the client to prevent any HTTP timeout
-    res.status(201).json({ 
-      success: true, 
-      message: "Ticket submitted successfully.", 
-      ticket: newTicket 
+    res.status(201).json({
+      success: true,
+      message: "Ticket submitted successfully.",
+      ticket: newTicket
     });
 
-    // 3. Handle Email Dispatch Asynchronously in the Background (Non-blocking)
+    // 3. Handle Email Dispatch Asynchronously in the Background via Brevo HTTPS API
     setImmediate(async () => {
       try {
         // Smart Email Routing Logic
@@ -41,53 +83,40 @@ export const createTicket = async (req, res) => {
           destinationEmail = process.env.DENTIST_EMAIL || 'matienzo.dentalclinic@gmail.com';
         }
 
-        // Configure the Email Transporter with explicit timeouts
-        const transporter = nodemailer.createTransport({
-          host: 'smtp.gmail.com',
-          port: 465,
-          secure: true, // true for port 465
-          family: 4,    // Forces IPv4 to prevent hanging on cloud hosting like Render
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-          },
-          connectionTimeout: 10000, // 10 seconds max connection wait
-          socketTimeout: 10000      // 10 seconds max socket wait
-        });
+        const emailHtml = `
+          <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;">
+            <h2 style="color: #0f172a; margin-top: 0;">New Support Ticket Received</h2>
+            <p><strong>Patient Name:</strong> ${patientName}</p>
+            <p><strong>Patient ID:</strong> ${patientId || 'N/A'}</p>
+            <p><strong>Contact Email:</strong> ${patientEmail}</p>
+            <p><strong>Category:</strong> ${subject}</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+            <p><strong>Message Details:</strong></p>
+            <p style="white-space: pre-wrap; color: #334155; background: #f8fafc; padding: 15px; border-radius: 8px; line-height: 1.5;">${message}</p>
+          </div>
+        `;
 
-        // Format the Email Payload
-        const mailOptions = {
-          from: `"Matienzo Dental Support" <${process.env.EMAIL_USER}>`,
+        const info = await sendBrevoEmail({
+          senderName: 'Matienzo Dental Support',
           to: destinationEmail,
           replyTo: patientEmail || process.env.EMAIL_USER,
           subject: `Support Ticket [${subject}] - from ${patientName}`,
-          html: `
-            <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;">
-              <h2 style="color: #0f172a; margin-top: 0;">New Support Ticket Received</h2>
-              <p><strong>Patient Name:</strong> ${patientName}</p>
-              <p><strong>Patient ID:</strong> ${patientId || 'N/A'}</p>
-              <p><strong>Contact Email:</strong> ${patientEmail}</p>
-              <p><strong>Category:</strong> ${subject}</p>
-              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-              <p><strong>Message Details:</strong></p>
-              <p style="white-space: pre-wrap; color: #334155; background: #f8fafc; padding: 15px; border-radius: 8px; line-height: 1.5;">${message}</p>
-            </div>
-          `
-        };
+          html: emailHtml
+        });
 
-        // Send the email in the background
-        await transporter.sendMail(mailOptions);
-        console.log(`[Ticket System] Support email successfully dispatched to: ${destinationEmail}`);
+        console.log(`[Ticket System] Support email successfully dispatched via Brevo to: ${destinationEmail} (Message ID: ${info.messageId})`);
       } catch (emailError) {
-        console.error("🚨 Background Email Dispatch Failed:", emailError.message);
+        console.error("🚨 Background Brevo Email Dispatch Failed:", emailError.message);
       }
     });
 
   } catch (error) {
     console.error("🚨 Error creating support ticket:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || "Failed to process your request. Please try again later." 
-    });
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to process your request. Please try again later."
+      });
+    }
   }
 };

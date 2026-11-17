@@ -5,7 +5,7 @@ import {
   sendMessage,
   getChats, 
   replyToChat,
-  markMessagesAsRead // 🔑 Imported missing markMessagesAsRead controller
+  markMessagesAsRead
 } from '../controllers/chatController.js';
 
 const router = express.Router();
@@ -15,7 +15,13 @@ const router = express.Router();
 // ==========================================
 router.get('/patient/:patientId', getChatHistory);
 router.post('/', sendMessage);
-router.patch('/patient/:patientId/read', markMessagesAsRead); // 🔑 Registered route to clear red badges
+router.patch('/patient/:patientId/read', markMessagesAsRead);
+
+// 🔑 Alias matching frontend calls to /api/chats/read/:patientId
+router.route('/read/:patientId')
+  .patch(markMessagesAsRead)
+  .put(markMessagesAsRead)
+  .post(markMessagesAsRead);
 
 // ==========================================
 // ADMIN-FACING ROUTES

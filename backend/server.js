@@ -23,8 +23,6 @@ import statusRoutes from './routers/statusRoutes.js';
 import testimonialRoutes from './routers/testimonialRoutes.js';
 import inventoryRoutes from './routers/inventory.js';
 import installmentRoutes from './routers/installmentRoutes.js';
-
-// 📅 NEW: Import blocked dates route
 import blockedDateRoutes from './routers/BlockedDates.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,36 +30,41 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// 🌐 CORS Configuration
+const allowedOrigins = [
+  "https://matienzo-dental-clinic-system.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:8081",
+  "http://localhost:19006"
+];
+
+// 🌐 CORS Configuration (Must be first)
 app.use(cors({
-  origin: [
-    "https://matienzo-dental-clinic-system.vercel.app", 
-    "http://localhost:5173",
-    'http://localhost:8081',    // Expo web default port
-    'http://localhost:19006', // allows local development too
-  ],
-  credentials: true,             // Required for cookies/auth headers
+  origin: allowedOrigins,
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+app.options('*', cors());
 
-// Express body parser middleware
-app.use(express.json());
+// Express body parser middleware with increased limit for uploads
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // Connect Database
 connectDB();
 
-// 🔑 ROUTE MANAGEMENT: Unique homes for every module
+// 🔑 ROUTE MANAGEMENT
 app.use('/', userRoutes);
-app.use('/api/auth', userRoutes); // Enables /api/auth/forgot-password and /api/auth/reset-password
-app.use('/api/users', userRoutes); // 🔑 FIXED: Maps /api/users/login and user endpoints correctly!
+app.use('/api/auth', userRoutes);
+app.use('/api/users', userRoutes);
 
 app.use('/api/contact', contactRoutes);
 app.use('/api/appointments', AppointmentRoute);
 app.use('/api/profile', profileRoutes);
 app.use('/api/tickets', ticketRoutes);
-app.use('/api/medical-records', medicalRoutes); 
+app.use('/api/medical-records', medicalRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/chat', chatRoutes); // Alias to prevent singular/plural 404s
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/analytics', analyticsRoute);
 app.use('/api/expenses', expenseRoute);
@@ -71,24 +74,32 @@ app.use('/api/inventory', inventoryRoutes);
 // Static Uploads Folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 📅 NEW: Mount the blocked dates route
+// Blocked dates, installments, admin, status, testimonials
 app.use('/api/blocked-dates', blockedDateRoutes);
 app.use('/api/installments', installmentRoutes);
 app.use('/api/admin', announcementRoutes);
-
-// Status & Admin Status Routes
 app.use('/api/status', statusRoutes);
-app.use('/api/admin', statusRoutes); // Handles /api/admin/doctor-status cleanly
+app.use('/api/admin', statusRoutes);
 app.use('/api/users/status', statusRoutes);
 app.use('/api/testimonials', testimonialRoutes);
 
-// Global Fallback Error Handler (Prevents unhandled crashes and ensures JSON response with CORS)
+// Global Fallback Error Handler (Preserves CORS headers on 500 errors)
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err.stack);
-  res.status(500).json({ 
-    success: false, 
-    message: err.message || "Internal Server Error" 
+  console.error("Server Error:", err.stack || err.message);
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Internal Server Error"
   });
+});
+
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  next();
 });
 
 const PORT = process.env.PORT || 5000;

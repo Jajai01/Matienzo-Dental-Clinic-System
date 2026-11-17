@@ -3,7 +3,6 @@ import { Chat } from '../models/Chat.js';
 import mongoose from 'mongoose';
 import User from '../models/user.js';
 import Appointment from '../models/appointments.js';
-import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -13,19 +12,53 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ==========================================
-// EMAIL TRANSPORTER CONFIGURATION
+// BREVO HTTPS EMAIL HELPER (Bypasses Render SMTP Block)
 // ==========================================
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    port: 465,
-    secure: true, // true for port 465
-    family: 4,
-    auth: {
-      user: 'matienzo.dentalclinic@gmail.com',
-      pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''
-    }
+const sendBrevoEmail = async ({ senderName = 'Matienzo Dental Clinic', to, subject, html, attachments = [] }) => {
+  const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : '';
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is missing in Render environment variables.');
+  }
+
+  const senderEmail = process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+
+  const payload = {
+    sender: {
+      name: senderName,
+      email: senderEmail
+    },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html
+  };
+
+  // Convert local file attachments to Brevo base64 format if provided
+  if (attachments && attachments.length > 0) {
+    payload.attachment = attachments.map(att => {
+      const fileBuffer = fs.readFileSync(att.path);
+      return {
+        name: att.filename,
+        content: fileBuffer.toString('base64')
+      };
+    });
+  }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(data)}`);
+  }
+
+  return data;
 };
 
 // ==========================================
@@ -33,118 +66,92 @@ const createTransporter = () => {
 // ==========================================
 
 export const uploadMedicalPhoto = async (req, res) => {
-    try {
-        const { patientId } = req.body;
-        if (!req.file) {
-            return res.status(400).json({ success: false, message: 'No file uploaded' });
-        }
+  try {
+    const { patientId } = req.body;
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
 
-        // 🔑 Dynamically generate correct absolute URL for the uploaded photo
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    // Dynamically generate correct absolute URL for the uploaded photo
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
 
-        let recordQuery = { patientId: patientId };
-        if (mongoose.Types.ObjectId.isValid(patientId)) {
-            recordQuery = { $or: [{ patientId }, { _id: patientId }] };
-        }
+    let recordQuery = { patientId: patientId };
+    if (mongoose.Types.ObjectId.isValid(patientId)) {
+      recordQuery = { $or: [{ patientId }, { _id: patientId }] };
+    }
 
-        let record = await MedicalRecord.findOne(recordQuery);
-        
-        // Create medical record if it doesn't exist yet for this patient
-        if (!record) {
-            record = new MedicalRecord({
-                patientId: patientId,
-                history: [],
-                prescriptions: [],
-                photos: []
-            });
-        }
+    let record = await MedicalRecord.findOne(recordQuery);
 
-        if (!record.photos) {
-            record.photos = [];
-        }
+    // Create medical record if it doesn't exist yet for this patient
+    if (!record) {
+      record = new MedicalRecord({
+        patientId: patientId,
+        history: [],
+        prescriptions: [],
+        photos: []
+      });
+    }
 
-        record.photos.push({
-            url: imageUrl,
-            date: new Date()
-        });
+    if (!record.photos) {
+      record.photos = [];
+    }
 
-        await record.save();
+    record.photos.push({
+      url: imageUrl,
+      date: new Date()
+    });
 
-        const patient = await User.findOne({ patientId: patientId }) || 
-                        (mongoose.Types.ObjectId.isValid(patientId) ? await User.findById(patientId).catch(() => null) : null);
-        
+    await record.save();
+
+    // Respond immediately so upload never hangs or triggers CORS/timeout errors
+    res.status(200).json({
+      success: true,
+      message: 'Photo uploaded successfully!',
+      imageUrl,
+      photos: record.photos
+    });
+
+    // Dispatch Email Notification to Clinic asynchronously via Brevo
+    setImmediate(async () => {
+      try {
+        const patient =
+          (await User.findOne({ patientId: patientId })) ||
+          (mongoose.Types.ObjectId.isValid(patientId)
+            ? await User.findById(patientId).catch(() => null)
+            : null);
+
         const patientName = patient ? `${patient.firstName} ${patient.lastName}` : 'Unknown Patient';
         const patientEmail = patient ? patient.email : 'Not provided';
+        const clinicEmail = process.env.DENTIST_EMAIL || process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
 
-        // Dispatch Email Notification to Clinic
-        try {
-            const transporter = createTransporter();
-            await transporter.sendMail({
-                from: `"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>`,
-                to: 'matienzo.dentalclinic@gmail.com',
-                subject: `📸 New Medical Photo Upload - ${patientName}`,
-                html: `
-                  <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 10px;">
-                    <h2 style="color: #0f172a;">New Medical Photo Uploaded</h2>
-                    <p><strong>Patient Name:</strong> ${patientName}</p>
-                    <p><strong>Patient ID:</strong> ${patientId}</p>
-                    <p><strong>Email:</strong> ${patientEmail}</p>
-                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-                    <p>The patient has securely uploaded a new photo/x-ray to their medical record.</p>
-                  </div>
-                `
-            });
-        } catch (emailErr) {
-            console.error("Failed to send admin photo email notification:", emailErr);
-        }
-
-        return res.status(200).json({ 
-            success: true, 
-            message: 'Photo uploaded successfully!', 
-            imageUrl,
-            photos: record.photos 
+        await sendBrevoEmail({
+          senderName: 'Matienzo Dental Clinic',
+          to: clinicEmail,
+          subject: `📸 New Medical Photo Upload - ${patientName}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 10px;">
+              <h2 style="color: #0f172a;">New Medical Photo Uploaded</h2>
+              <p><strong>Patient Name:</strong> ${patientName}</p>
+              <p><strong>Patient ID:</strong> ${patientId}</p>
+              <p><strong>Email:</strong> ${patientEmail}</p>
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+              <p>The patient has securely uploaded a new photo/x-ray to their medical record.</p>
+            </div>
+          `
         });
-
-    } catch (error) {
-        console.error("Upload Error:", error);
-        return res.status(500).json({ success: false, message: "Server error uploading photo." });
-    }
-};
-
-  // 📸 PHOTO UPLOAD HANDLER
-  const handleFileUpload = async (e) => {
-    e.preventDefault();
-    if (!uploadFile) return;
-
-    const patientId = user?.patientId || user?._id;
-    const formData = new FormData();
-    formData.append('image', uploadFile);
-    formData.append('patientId', patientId);
-
-    setIsUploading(true);
-    setUploadMessage('');
-
-    try {
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/medical-records/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      
-      if (response.data.success) {
-        setUploadMessage('Photo uploaded successfully!');
-        setUploadFile(null);
-      } else {
-        setUploadMessage('Failed to upload photo.');
+        console.log(`✅ Admin photo email notification sent via Brevo for ${patientName}`);
+      } catch (emailErr) {
+        console.error("Failed to send admin photo email notification:", emailErr.message);
       }
-    } catch (error) {
-      console.error("Upload failed:", error);
-      setUploadMessage(error.response?.data?.message || 'Failed to upload photo.');
-    } finally {
-      setIsUploading(false);
-      setTimeout(() => setUploadMessage(''), 4000); 
+    });
+  } catch (error) {
+    console.error("Upload Error:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: "Server error uploading photo." });
     }
-  };
-
+  }
+};
 
 export const getMedicalRecords = async (req, res) => {
   try {
@@ -156,15 +163,16 @@ export const getMedicalRecords = async (req, res) => {
     }
 
     const record = await MedicalRecord.findOne(queryConditions);
-    
-    res.status(200).json({ 
-      success: true, 
-      history: record ? record.history : [], 
-      prescriptions: record ? record.prescriptions : [] 
+
+    res.status(200).json({
+      success: true,
+      history: record ? record.history : [],
+      prescriptions: record ? record.prescriptions : [],
+      photos: record ? record.photos || [] : []
     });
-  } catch (err) { 
+  } catch (err) {
     console.error("Error fetching medical records:", err);
-    res.status(500).json({ success: false, message: err.message }); 
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -172,8 +180,8 @@ export const getChatHistory = async (req, res) => {
   try {
     const chat = await Chat.findOne({ patientId: req.params.patientId });
     res.status(200).json({ success: true, messages: chat?.messages || [] });
-  } catch (err) { 
-    res.status(500).json({ success: false, message: err.message }); 
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -181,15 +189,15 @@ export const sendMessage = async (req, res) => {
   try {
     const { patientId, sender, text } = req.body;
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
+
     await Chat.findOneAndUpdate(
       { patientId },
       { $push: { messages: { sender, text, time } } },
       { upsert: true, returnDocument: 'after' }
     );
     res.status(200).json({ returnDocument: 'after' });
-  } catch (err) { 
-    res.status(500).json({ returnDocument: 'before', message: err.message }); 
+  } catch (err) {
+    res.status(500).json({ returnDocument: 'before', message: err.message });
   }
 };
 
@@ -211,7 +219,6 @@ export const updateDiagnosis = async (req, res) => {
     const { patientId, historyId } = req.params;
     const { diagnosis } = req.body;
 
-    // 🔑 Safe query builder for MedicalRecord update
     let recordQuery = { patientId: patientId };
     if (mongoose.Types.ObjectId.isValid(patientId)) {
       recordQuery = { $or: [{ patientId }, { _id: patientId }] };
@@ -227,9 +234,9 @@ export const updateDiagnosis = async (req, res) => {
       return res.status(404).json({ success: false, message: "Record or history entry not found." });
     }
 
-    res.status(200).json({ returnDocument : 'after', record });
+    res.status(200).json({ returnDocument: 'after', record });
   } catch (err) {
-    res.status(500).json({ returnDocument : 'before', message: err.message });
+    res.status(500).json({ returnDocument: 'before', message: err.message });
   }
 };
 
@@ -247,9 +254,15 @@ export const addPrescription = async (req, res) => {
     }
 
     let record = await MedicalRecord.findOne(query);
-    const patientUser = await User.findOne({ patientId: patientId }) || (mongoose.Types.ObjectId.isValid(patientId) ? await User.findById(patientId).catch(() => null) : null);
+    const patientUser =
+      (await User.findOne({ patientId: patientId })) ||
+      (mongoose.Types.ObjectId.isValid(patientId)
+        ? await User.findById(patientId).catch(() => null)
+        : null);
 
-    const patientName = patientUser ? `${patientUser.firstName} ${patientUser.lastName}` : (record?.patientName || 'Valued Patient');
+    const patientName = patientUser
+      ? `${patientUser.firstName} ${patientUser.lastName}`
+      : record?.patientName || 'Valued Patient';
     const patientEmail = patientUser?.email || null;
     const patientAge = patientUser?.age || 'N/A';
     const patientSex = patientUser?.sex || patientUser?.gender || 'N/A';
@@ -261,8 +274,7 @@ export const addPrescription = async (req, res) => {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
     const pdfPath = path.join(uploadsDir, pdfFileName);
-    
-    // 🔑 FIX: Use request protocol and host or process.env instead of frontend import.meta.env
+
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const pdfUrl = `${baseUrl}/uploads/${pdfFileName}`;
 
@@ -328,7 +340,7 @@ export const addPrescription = async (req, res) => {
       ];
 
       doc.font('Helvetica').fontSize(6.5).fillColor('#334155');
-      instructions.forEach(inst => {
+      instructions.forEach((inst) => {
         doc.text(inst, { lineGap: 1 });
       });
 
@@ -342,11 +354,11 @@ export const addPrescription = async (req, res) => {
       date: issueDate,
       medicine,
       dosage,
-      frequency: frequency || '',    
-      duration: duration || '',      
-      notes: notes || '',            
+      frequency: frequency || '',
+      duration: duration || '',
+      notes: notes || '',
       quantity: quantity || '',
-      expiryDate: expiryDate || '', 
+      expiryDate: expiryDate || '',
       status: status || 'Active',
       pdfUrl
     };
@@ -395,27 +407,26 @@ export const addPrescription = async (req, res) => {
         </div>
       `;
 
-      const transporter = createTransporter();
-      transporter.sendMail({
-        from: '"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>',
+      // Send to Patient with PDF attachment via Brevo
+      sendBrevoEmail({
+        senderName: 'Matienzo Dental Clinic',
         to: patientEmail,
         subject: `Your Prescription from Matienzo Dental Clinic - ${prescriptionId}`,
         html: emailHtmlTemplate,
-        attachments: [
-          {
-            filename: pdfFileName,
-            path: pdfPath
-          }
-        ]
-      }).then(() => {
-        console.log(`✅ Prescription PDF email successfully sent to patient: ${patientEmail}`);
-      }).catch(err => {
-        console.error("🚨 Error sending prescription email to patient:", err);
-      });
+        attachments: [{ filename: pdfFileName, path: pdfPath }]
+      })
+        .then(() => {
+          console.log(`✅ Prescription PDF email successfully sent via Brevo to patient: ${patientEmail}`);
+        })
+        .catch((err) => {
+          console.error("🚨 Error sending prescription email via Brevo to patient:", err.message);
+        });
 
-      transporter.sendMail({
-        from: '"Matienzo Dental System" <matienzo.dentalclinic@gmail.com>',
-        to: 'matienzo.dentalclinic@gmail.com',
+      // Send copy to Clinic Admin via Brevo
+      const clinicEmail = process.env.DENTIST_EMAIL || process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+      sendBrevoEmail({
+        senderName: 'Matienzo Dental System',
+        to: clinicEmail,
         subject: `Prescription Issued to ${patientName} (${prescriptionId})`,
         html: `<p>Prescription was successfully issued to <strong>${patientName}</strong> (${patientEmail}).</p><p>Medicine: ${medicine} (${dosage})</p>`,
         attachments: [{ filename: pdfFileName, path: pdfPath }]
@@ -425,9 +436,9 @@ export const addPrescription = async (req, res) => {
     return res.status(200).json({ success: true, record, pdfUrl });
   } catch (error) {
     console.error("🚨 DETAILED PRESCRIPTION SAVE ERROR:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || "Server error saving prescription." 
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error saving prescription."
     });
   }
 };

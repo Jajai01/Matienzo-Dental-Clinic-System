@@ -1,25 +1,43 @@
-import Appointment from '../models/appointments.js'; 
-import nodemailer from 'nodemailer';
+import Appointment from '../models/appointments.js';
 import { MedicalRecord } from '../models/MedicalData.js';
 import User from '../models/user.js';
 import PDFDocument from 'pdfkit';
 
 // ==========================================
-// EMAIL CONFIGURATION (SAFE TRANSPORTER)
+// BREVO HTTPS EMAIL HELPER (Bypasses Render SMTP Block)
 // ==========================================
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    port: 465,
-    secure: true, // true for port 465
-    family: 4,
-    auth: {
-      user: 'matienzo.dentalclinic@gmail.com',
-      pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''
+const sendBrevoEmail = async ({ senderName = 'Matienzo Dental Clinic', to, subject, html }) => {
+  const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : '';
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is missing in Render environment variables.');
+  }
+
+  const senderEmail = process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json'
     },
-    connectionTimeout: 10000, // 🔑 10 seconds max connection wait to prevent hanging
-    socketTimeout: 10000      // 🔑 10 seconds max socket wait
+    body: JSON.stringify({
+      sender: {
+        name: senderName,
+        email: senderEmail
+      },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html
+    })
   });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(data)}`);
+  }
+
+  return data;
 };
 
 /**
@@ -29,26 +47,26 @@ const createTransporter = () => {
  */
 export const createAppointment = async (req, res) => {
   try {
-    const { 
-      patientId, 
-      patientName, 
+    const {
+      patientId,
+      patientName,
       patientEmail,
-      dentist, 
-      service, 
-      selectedDate, 
-      selectedTimeSlot, 
-      notes 
+      dentist,
+      service,
+      selectedDate,
+      selectedTimeSlot,
+      notes
     } = req.body;
 
-    console.log("==== EMAIL DIAGNOSTICS ====");
-    console.log("1. Is Patient Email captured?:", patientEmail || "MISSING!");
-    console.log("2. Is the App Password loaded?:", process.env.EMAIL_PASS ? "YES - LOADED" : "NO - UNDEFINED");
-    console.log("===========================");
+    console.log("==== APPOINTMENT EMAIL DIAGNOSTICS ====");
+    console.log("1. Patient Email captured:", patientEmail || "MISSING!");
+    console.log("2. BREVO_API_KEY loaded:", process.env.BREVO_API_KEY ? "YES - LOADED" : "NO - UNDEFINED");
+    console.log("=======================================");
 
     if (!patientId || !patientName || !dentist || !service || !selectedDate || !selectedTimeSlot) {
-      return res.status(400).json({ 
-        returnDocument: 'before',
-        message: "Missing required booking details. Please verify your form selections." 
+      return res.status(400).json({
+        success: false,
+        message: "Missing required booking details. Please verify your form selections."
       });
     }
 
@@ -59,9 +77,9 @@ export const createAppointment = async (req, res) => {
     });
 
     if (slotOccupied) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "This specific 30-minute time window has just been reserved by another patient. Please select a different hour." 
+      return res.status(400).json({
+        success: false,
+        message: "This specific 30-minute time window has just been reserved by another patient. Please select a different hour."
       });
     }
 
@@ -77,18 +95,18 @@ export const createAppointment = async (req, res) => {
     });
 
     const savedAppointment = await appointment.save();
-    
+
     // ==========================================
-    // 🔑 RESPOND IMMEDIATELY (Prevent HTTP Timeout)
+    // RESPOND IMMEDIATELY (Prevent HTTP Timeout)
     // ==========================================
-    res.status(201).json({ 
-      success: true, 
-      message: "Appointment created successfully.", 
-      appointment: savedAppointment 
+    res.status(201).json({
+      success: true,
+      message: "Appointment created successfully.",
+      appointment: savedAppointment
     });
 
     // ==========================================
-    // TRIGGER EMAIL NOTIFICATIONS ASYNCHRONOUSLY
+    // TRIGGER BREVO EMAIL NOTIFICATIONS ASYNCHRONOUSLY
     // ==========================================
     setImmediate(async () => {
       try {
@@ -166,23 +184,21 @@ export const createAppointment = async (req, res) => {
           </div>
         `;
 
-        const activeTransporter = createTransporter();
-        const emailPromises = [];
-
-        emailPromises.push(
-          activeTransporter.sendMail({
-            from: '"Matienzo Dental System" <matienzo.dentalclinic@gmail.com>',
-            to: 'matienzo.dentalclinic@gmail.com',
+        const clinicEmail = process.env.DENTIST_EMAIL || process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+        const emailPromises = [
+          sendBrevoEmail({
+            senderName: 'Matienzo Dental System',
+            to: clinicEmail,
             subject: `New Appointment Request: ${patientName}`,
             html: clinicHtmlTemplate
           })
-        );
+        ];
 
         if (patientEmail) {
           emailPromises.push(
-            activeTransporter.sendMail({
-              from: '"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>',
-              to: patientEmail, 
+            sendBrevoEmail({
+              senderName: 'Matienzo Dental Clinic',
+              to: patientEmail,
               subject: `Appointment Request Received: ${service}`,
               html: patientHtmlTemplate
             })
@@ -190,19 +206,18 @@ export const createAppointment = async (req, res) => {
         }
 
         await Promise.all(emailPromises);
-        console.log("All appointment notifications dispatched successfully.");
+        console.log("✅ All appointment notifications dispatched successfully via Brevo.");
       } catch (err) {
-        console.error("Email notification dispatch failed:", err.message);
+        console.error("🚨 Appointment email notification dispatch failed:", err.message);
       }
     });
-
   } catch (error) {
     console.error("Error inside createAppointment controller:", error);
     if (!res.headersSent) {
-      return res.status(500).json({ 
-        success: false, 
-        message: "Internal server error processing the appointment request.", 
-        error: error.message 
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error processing the appointment request.",
+        error: error.message
       });
     }
   }
@@ -223,13 +238,12 @@ export const getPatientAppointments = async (req, res) => {
       count: appointments.length,
       appointments
     });
-
   } catch (error) {
     console.error("Error inside getPatientAppointments controller:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Internal server error retrieving patient ledger logs.", 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error retrieving patient ledger logs.",
+      error: error.message
     });
   }
 };
@@ -242,14 +256,14 @@ export const getPatientAppointments = async (req, res) => {
 export const cancelAppointment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { patientEmail } = req.body; 
+    const { patientEmail } = req.body;
 
     const appointment = await Appointment.findById(id);
 
     if (!appointment) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Target appointment reference file not found." 
+      return res.status(404).json({
+        success: false,
+        message: "Target appointment reference file not found."
       });
     }
 
@@ -263,61 +277,71 @@ export const cancelAppointment = async (req, res) => {
     appointment.status = "Cancelled";
     const updatedAppointment = await appointment.save();
 
-    let recipientEmail = patientEmail || appointment.patientEmail;
-    if (!recipientEmail && appointment.patientId) {
-      const userDoc = await User.findOne({ patientId: appointment.patientId });
-      if (userDoc) recipientEmail = userDoc.email;
-    }
-
-    const patientCancelTemplate = `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
-        <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
-          <div style="background-color: #ef4444; padding: 30px; text-align: center; border-bottom: 4px solid #b91c1c;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">Matienzo Dental Clinic</h1>
-            <p style="color: #fee2e2; margin: 8px 0 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">Appointment Cancelled</p>
-          </div>
-          <div style="padding: 40px 30px;">
-            <h2 style="color: #0f172a; margin-top: 0;">Hello ${appointment.patientName},</h2>
-            <p style="color: #475569; line-height: 1.6; font-size: 15px;">
-              Your appointment reservation has been successfully cancelled as requested.
-            </p>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const activeTransporter = createTransporter();
-    const emailPromises = [
-      activeTransporter.sendMail({
-        from: '"Matienzo Dental System" <matienzo.dentalclinic@gmail.com>',
-        to: 'matienzo.dentalclinic@gmail.com',
-        subject: `Cancelled Appointment: ${appointment.patientName}`,
-        html: `<p>Appointment ID ${appointment._id} was cancelled.</p>`
-      })
-    ];
-
-    if (recipientEmail) {
-      emailPromises.push(
-        activeTransporter.sendMail({
-          from: '"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>',
-          to: recipientEmail,
-          subject: `Appointment Cancelled: ${appointment.service}`,
-          html: patientCancelTemplate
-        })
-      );
-    }
-
-    Promise.all(emailPromises).catch(err => console.error("Email dispatch failed:", err));
-
-    return res.status(200).json({
+    // Respond immediately
+    res.status(200).json({
       success: true,
       message: "Appointment registration cancelled successfully.",
       appointment: updatedAppointment
     });
 
+    // Dispatch cancellation emails via Brevo in the background
+    setImmediate(async () => {
+      try {
+        let recipientEmail = patientEmail || appointment.patientEmail;
+        if (!recipientEmail && appointment.patientId) {
+          const userDoc = await User.findOne({ patientId: appointment.patientId });
+          if (userDoc) recipientEmail = userDoc.email;
+        }
+
+        const patientCancelTemplate = `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
+            <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+              <div style="background-color: #ef4444; padding: 30px; text-align: center; border-bottom: 4px solid #b91c1c;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">Matienzo Dental Clinic</h1>
+                <p style="color: #fee2e2; margin: 8px 0 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">Appointment Cancelled</p>
+              </div>
+              <div style="padding: 40px 30px;">
+                <h2 style="color: #0f172a; margin-top: 0;">Hello ${appointment.patientName},</h2>
+                <p style="color: #475569; line-height: 1.6; font-size: 15px;">
+                  Your appointment reservation has been successfully cancelled as requested.
+                </p>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const clinicEmail = process.env.DENTIST_EMAIL || process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
+        const emailPromises = [
+          sendBrevoEmail({
+            senderName: 'Matienzo Dental System',
+            to: clinicEmail,
+            subject: `Cancelled Appointment: ${appointment.patientName}`,
+            html: `<p>Appointment ID ${appointment._id} (${appointment.service} on ${appointment.selectedDate}) was cancelled by the patient.</p>`
+          })
+        ];
+
+        if (recipientEmail) {
+          emailPromises.push(
+            sendBrevoEmail({
+              senderName: 'Matienzo Dental Clinic',
+              to: recipientEmail,
+              subject: `Appointment Cancelled: ${appointment.service}`,
+              html: patientCancelTemplate
+            })
+          );
+        }
+
+        await Promise.all(emailPromises);
+        console.log("✅ Cancellation emails dispatched via Brevo.");
+      } catch (err) {
+        console.error("🚨 Cancellation email dispatch failed:", err.message);
+      }
+    });
   } catch (error) {
     console.error("Error inside cancelAppointment controller:", error);
-    return res.status(500).json({ success: false, message: error.message });
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
   }
 };
 
@@ -336,9 +360,9 @@ export const getAdminAppointments = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching admin calendar data:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Server Error fetching master schedule." 
+    return res.status(500).json({
+      success: false,
+      message: "Server Error fetching master schedule."
     });
   }
 };
@@ -351,108 +375,105 @@ export const getAdminAppointments = async (req, res) => {
 export const updateAppointmentStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const incomingStatus = req.body.newStatus || req.body.status; 
+    const incomingStatus = req.body.newStatus || req.body.status;
     const cancellationReason = req.body.cancellationReason;
 
     const appointment = await Appointment.findById(id);
-    
+
     if (!appointment) {
       return res.status(404).json({ success: false, message: "Target appointment not found." });
     }
 
     console.log("========== STATUS UPDATE TRIGGERED ==========");
     console.log("1. Appointment Found for ID:", appointment._id);
-    console.log("2. Patient Name currently stored as:", appointment.patientName);
+    console.log("2. Patient Name:", appointment.patientName);
     console.log("3. Target Status:", incomingStatus);
 
     appointment.status = incomingStatus;
     await appointment.save();
 
-    // 🔑 HANDLE ADMIN CANCELLATION & EMAIL NOTIFICATION
-    if (incomingStatus === "Cancelled") {
-      let recipientEmail = appointment.patientEmail || req.body.patientEmail;
-      
-      if (!recipientEmail && appointment.patientId) {
-        const userDoc = await User.findOne({ patientId: appointment.patientId });
-        if (userDoc) recipientEmail = userDoc.email;
-      }
-
-      console.log("========== EMAIL DEBUG LOGS ==========");
-      console.log("1. Target Appointment ID:", appointment._id);
-      console.log("2. Patient Name:", appointment.patientName);
-      console.log("3. Recipient Email Resolved as:", recipientEmail || "❌ NULL / UNDEFINED");
-      console.log("4. EMAIL_PASS status:", process.env.EMAIL_PASS ? "✅ Loaded" : "❌ UNDEFINED");
-      console.log("======================================");
-
-      const adminCancelTemplate = `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
-          <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
-            <div style="background-color: #ef4444; padding: 30px; text-align: center; border-bottom: 4px solid #b91c1c;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Matienzo Dental Clinic</h1>
-              <p style="color: #fee2e2; margin: 8px 0 0 0; font-size: 14px; text-transform: uppercase;">Appointment Cancelled by Clinic</p>
-            </div>
-            <div style="padding: 40px 30px;">
-              <h2 style="color: #0f172a; margin-top: 0;">Hello ${appointment.patientName},</h2>
-              <p style="color: #475569; line-height: 1.6; font-size: 15px;">
-                We regret to inform you that your appointment has been cancelled by the clinic administration due to unforeseen schedule changes.
-              </p>
-              <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
-                <p style="margin: 0; color: #991b1b; font-size: 13px;"><strong>Reason:</strong> ${cancellationReason || 'Doctor emergency / schedule conflict'}</p>
-              </div>
-              <p style="color: #475569; font-size: 14px;">Service: <strong>${appointment.service}</strong><br/>Date: <strong>${appointment.selectedDate} (${appointment.selectedTimeSlot})</strong></p>
-            </div>
-          </div>
-        </div>
-      `;
-
-      if (recipientEmail) {
-        try {
-          const activeTransporter = createTransporter();
-          const info = await activeTransporter.sendMail({
-            from: '"Matienzo Dental Clinic" <matienzo.dentalclinic@gmail.com>',
-            to: recipientEmail,
-            subject: `Important: Appointment Cancelled - ${appointment.service}`,
-            html: adminCancelTemplate
-          });
-          console.log("✅ Email successfully sent! Response:", info.response);
-        } catch (emailErr) {
-          console.error("🚨 NODEMAILER CRASH ERROR:", emailErr.message);
-        }
-      } else {
-        console.log("❌ Skipping email: No recipient email address found for this patient.");
-      }
-    }
-
     if (incomingStatus === "Completed") {
       const historyEntry = {
-        id: appointment.referenceCode, 
+        id: appointment.referenceCode,
         date: appointment.selectedDate,
-        diagnosis: "Pending Notes", 
+        diagnosis: "Pending Notes",
         treatment: appointment.service,
         dentist: appointment.dentist
       };
 
-      console.log("4. Attempting to push to Medical Records...");
+      console.log("4. Pushing completed visit to Medical Records...");
       await MedicalRecord.findOneAndUpdate(
         { patientId: appointment.patientId },
-        { 
+        {
           $push: { history: historyEntry },
-          $set: { patientName: appointment.patientName || "Fallback Name Inserted" } 
+          $set: { patientName: appointment.patientName || "Fallback Name Inserted" }
         },
-        { upsert: true, returnDocument: 'after' } 
+        { upsert: true, returnDocument: 'after' }
       );
-      console.log("6. Successfully saved Medical Record!");
+      console.log("5. Successfully saved Medical Record!");
     }
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "Status updated successfully", 
-      appointment 
+    // Respond immediately to the Admin UI
+    res.status(200).json({
+      success: true,
+      message: "Status updated successfully",
+      appointment
     });
 
+    // HANDLE ADMIN CANCELLATION & BREVO EMAIL NOTIFICATION IN BACKGROUND
+    if (incomingStatus === "Cancelled") {
+      setImmediate(async () => {
+        try {
+          let recipientEmail = appointment.patientEmail || req.body.patientEmail;
+
+          if (!recipientEmail && appointment.patientId) {
+            const userDoc = await User.findOne({ patientId: appointment.patientId });
+            if (userDoc) recipientEmail = userDoc.email;
+          }
+
+          if (!recipientEmail) {
+            console.log("❌ Skipping admin cancellation email: No recipient email found.");
+            return;
+          }
+
+          const adminCancelTemplate = `
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px 20px;">
+              <div style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+                <div style="background-color: #ef4444; padding: 30px; text-align: center; border-bottom: 4px solid #b91c1c;">
+                  <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Matienzo Dental Clinic</h1>
+                  <p style="color: #fee2e2; margin: 8px 0 0 0; font-size: 14px; text-transform: uppercase;">Appointment Cancelled by Clinic</p>
+                </div>
+                <div style="padding: 40px 30px;">
+                  <h2 style="color: #0f172a; margin-top: 0;">Hello ${appointment.patientName},</h2>
+                  <p style="color: #475569; line-height: 1.6; font-size: 15px;">
+                    We regret to inform you that your appointment has been cancelled by the clinic administration due to unforeseen schedule changes.
+                  </p>
+                  <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+                    <p style="margin: 0; color: #991b1b; font-size: 13px;"><strong>Reason:</strong> ${cancellationReason || 'Doctor emergency / schedule conflict'}</p>
+                  </div>
+                  <p style="color: #475569; font-size: 14px;">Service: <strong>${appointment.service}</strong><br/>Date: <strong>${appointment.selectedDate} (${appointment.selectedTimeSlot})</strong></p>
+                </div>
+              </div>
+            </div>
+          `;
+
+          const info = await sendBrevoEmail({
+            senderName: 'Matienzo Dental Clinic',
+            to: recipientEmail,
+            subject: `Important: Appointment Cancelled - ${appointment.service}`,
+            html: adminCancelTemplate
+          });
+          console.log("✅ Admin cancellation email sent via Brevo! Message ID:", info.messageId);
+        } catch (emailErr) {
+          console.error("🚨 BREVO ADMIN CANCELLATION EMAIL ERROR:", emailErr.message);
+        }
+      });
+    }
   } catch (error) {
     console.error("🚨 CRASH in updateAppointmentStatus:", error);
-    return res.status(500).json({ returnDocument: 'before', message: "Internal server error" });
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: "Internal server error" });
+    }
   }
 };
 
@@ -464,11 +485,11 @@ export const updateBillingAmount = async (req, res) => {
     const appointment = await Appointment.findByIdAndUpdate(
       id,
       { $set: { billingAmount: Number(billingAmount) } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
-    if (!appointment) return res.status(404).json({ returnDocument: 'before', message: "Appointment not found." });
-    return res.status(200).json({ returnDocument: 'after', appointment });
+    if (!appointment) return res.status(404).json({ success: false, message: "Appointment not found." });
+    return res.status(200).json({ success: true, appointment });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Server error updating billing." });
   }
@@ -476,12 +497,12 @@ export const updateBillingAmount = async (req, res) => {
 
 export const markAsPaid = async (req, res) => {
   try {
-    const { 
-      paymentStatus, 
-      billingAmount, 
-      discountApplied, 
-      finalAmountPaid, 
-      paymentReference 
+    const {
+      paymentStatus,
+      billingAmount,
+      discountApplied,
+      finalAmountPaid,
+      paymentReference
     } = req.body;
 
     const updatedAppointment = await Appointment.findByIdAndUpdate(
@@ -494,17 +515,17 @@ export const markAsPaid = async (req, res) => {
         paymentReference: paymentReference,
         paymentDate: Date.now()
       },
-      { returnDocument: 'after' } 
+      { returnDocument: 'after' }
     );
-    
+
     if (!updatedAppointment) {
-      return res.status(404).json({ returnDocument: 'before', message: "Appointment not found" });
+      return res.status(404).json({ success: false, message: "Appointment not found" });
     }
-    
-    res.status(200).json({ returnDocument: 'after', appointment: updatedAppointment });
+
+    res.status(200).json({ success: true, appointment: updatedAppointment });
   } catch (error) {
-    console.error("Payment processing error:", error); 
-    res.status(500).json({ returnDocument: 'before', message: "Server error processing payment." });
+    console.error("Payment processing error:", error);
+    res.status(500).json({ success: false, message: "Server error processing payment." });
   }
 };
 
@@ -539,7 +560,7 @@ export const generateReceiptPDF = async (req, res) => {
     doc.fillColor('#0f172a').fontSize(10).font('Helvetica');
 
     if (services && services.length > 0) {
-      services.forEach(svc => {
+      services.forEach((svc) => {
         const yPos = doc.y;
         const displayName = svc.quantity > 1 ? `${svc.quantity}x ${svc.name}` : svc.name;
         doc.text(displayName, 40, yPos, { width: 200 });
@@ -566,8 +587,8 @@ export const submitPaymentIntent = async (req, res) => {
   try {
     const { paymentMethod, paymentReference, paymentStatus } = req.body;
     await Appointment.findByIdAndUpdate(req.params.id, { paymentMethod, paymentReference, paymentStatus });
-    res.status(200).json({ returnDocument: 'after', message: "Payment info submitted." });
+    res.status(200).json({ success: true, message: "Payment info submitted." });
   } catch (error) {
-    res.status(500).json({ returnDocument: 'before', message: "Server error processing payment." });
+    res.status(500).json({ success: false, message: "Server error processing payment." });
   }
 };
