@@ -529,9 +529,14 @@ export const markAsPaid = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Generate Official Receipt PDF (Supports subtotal, discount, and grand total)
+ * @route   POST /api/appointments/generate-receipt
+ * @access  Protected (Admin)
+ */
 export const generateReceiptPDF = async (req, res) => {
   try {
-    const { patientName, selectedDate, services, totalAmount, referenceCode } = req.body;
+    const { patientName, selectedDate, services, subtotal, discount, totalAmount, referenceCode } = req.body;
     const doc = new PDFDocument({ size: 'A5', margin: 40 });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -559,12 +564,15 @@ export const generateReceiptPDF = async (req, res) => {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#94a3b8').text('OPERATIONS / SERVICES').moveDown(0.5);
     doc.fillColor('#0f172a').fontSize(10).font('Helvetica');
 
+    let calculatedSubtotal = 0;
     if (services && services.length > 0) {
       services.forEach((svc) => {
         const yPos = doc.y;
+        const lineCost = Number(svc.cost) * (svc.quantity || 1);
+        calculatedSubtotal += lineCost;
         const displayName = svc.quantity > 1 ? `${svc.quantity}x ${svc.name}` : svc.name;
         doc.text(displayName, 40, yPos, { width: 200 });
-        doc.text(`PHP ${Number(svc.cost).toFixed(2)}`, 240, yPos, { width: 139, align: 'right' });
+        doc.text(`PHP ${lineCost.toFixed(2)}`, 240, yPos, { width: 139, align: 'right' });
       });
     }
 
@@ -572,9 +580,20 @@ export const generateReceiptPDF = async (req, res) => {
     doc.moveTo(40, doc.y).lineTo(doc.page.width - 40, doc.y).strokeColor('#e2e8f0').stroke();
     doc.moveDown(1);
 
+    // Totals section (Subtotal, Discount, Grand Total)
+    const finalSubtotal = subtotal !== undefined ? subtotal : calculatedSubtotal;
+    const appliedDiscount = discount || 0;
+    const finalTotal = totalAmount !== undefined ? totalAmount : Math.max(0, finalSubtotal - appliedDiscount);
+
+    doc.fontSize(9).font('Helvetica').text(`Subtotal: PHP ${finalSubtotal.toFixed(2)}`, { align: 'right' });
+    if (appliedDiscount > 0) {
+      doc.fillColor('#059669').text(`Discount Applied: -PHP ${appliedDiscount.toFixed(2)}`, { align: 'right' });
+    }
+    
+    doc.moveDown(0.5);
     const finalY = doc.y;
-    doc.font('Helvetica-Bold').fontSize(12).text('GRAND TOTAL', 40, finalY);
-    doc.fillColor('#D4AF37').fontSize(16).text(`PHP ${Number(totalAmount).toFixed(2)}`, 200, finalY - 2, { width: 179, align: 'right' });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12).text('GRAND TOTAL', 40, finalY);
+    doc.fillColor('#D4AF37').fontSize(16).text(`PHP ${finalTotal.toFixed(2)}`, 200, finalY - 2, { width: 179, align: 'right' });
 
     doc.end();
   } catch (error) {

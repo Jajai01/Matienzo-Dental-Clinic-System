@@ -104,6 +104,17 @@ export const registerUser = async (req, res) => {
 
     await newUser.save();
 
+    // 🔑 3.5. AUTOMATICALLY CREATE MEDICAL RECORD ON SIGNUP
+    // This ensures their full name appears instantly in Patient Records without needing an appointment
+    const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
+    await MedicalRecord.create({
+      patientId: assignedPatientId,
+      patientName: fullName,
+      history: [],
+      prescriptions: [],
+      photos: []
+    });
+
     // 4. TRIGGER WELCOME EMAIL (Run asynchronously in the background)
     sendWelcomeEmail(newUser.email, newUser.firstName, newUser.patientId);
 

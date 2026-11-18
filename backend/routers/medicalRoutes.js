@@ -1,8 +1,5 @@
 import express from 'express';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { 
   getMedicalRecords, 
   getChatHistory, 
@@ -15,37 +12,17 @@ import {
 
 const router = express.Router();
 
-// ESM equivalent for __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Ensure an uploads directory exists
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configure Multer storage for uploaded files
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// 🔑 Configure Multer for IN-MEMORY storage (bypasses Render's local disk wipe)
 const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB max limit to prevent memory crashes on Render
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
-// 🔑 ADMIN ROUTE: Must go BEFORE the patientId route so Express doesn't get confused
+// ADMIN ROUTE: Must go BEFORE the patientId route so Express doesn't get confused
 router.get('/admin/all', getAllMedicalRecords);
 router.patch('/:patientId/history/:historyId', updateDiagnosis);
 
-// 🔑 UPLOAD ROUTE: Handles patient image/photo submissions (maps to /api/medical-records/upload)
+// UPLOAD ROUTE: Handles patient image/photo submissions straight to Cloudflare R2
 router.post('/upload', (req, res, next) => {
   const uploadHandler = upload.fields([
     { name: 'image', maxCount: 1 },
@@ -55,7 +32,7 @@ router.post('/upload', (req, res, next) => {
 
   uploadHandler(req, res, (err) => {
     if (err) {
-      console.error("🚨 Multer Upload Error:", err.message);
+      console.error("🚨 Multer Memory Storage Error:", err.message);
       return res.status(400).json({ 
         success: false, 
         message: `Upload error: ${err.message}` 

@@ -33,7 +33,7 @@ const AdminReceipts = ({ admin, setAdmin }) => {
     return isPaid && matchesSearch;
   });
 
-  // 🔑 UPDATED LOGIC: Consolidate identical services and add Quantity multipliers
+  // 🔑 UPDATED LOGIC: Consolidate identical services, calculate subtotal, discount, and grand total
   const groupedTransactions = Object.values(paidAppointments.reduce((acc, curr) => {
     const key = `${curr.patientName}_${curr.selectedDate}`;
     
@@ -44,12 +44,15 @@ const AdminReceipts = ({ admin, setAdmin }) => {
         selectedDate: curr.selectedDate,
         referenceCode: curr.referenceCode,
         services: [],
+        subtotal: 0,
+        discount: Number(curr.discount || curr.discountAmount) || 0,
         totalAmount: 0
       };
     }
 
     const serviceName = curr.service;
     const serviceCost = Number(curr.billingAmount) || 0;
+    const itemDiscount = Number(curr.discount || curr.discountAmount) || 0;
     
     // Check if this specific service is already listed for this patient today
     const existingServiceIndex = acc[key].services.findIndex(s => s.name === serviceName);
@@ -67,7 +70,10 @@ const AdminReceipts = ({ admin, setAdmin }) => {
       });
     }
 
-    acc[key].totalAmount += serviceCost;
+    acc[key].subtotal += serviceCost;
+    acc[key].discount = Math.max(acc[key].discount, itemDiscount);
+    acc[key].totalAmount = Math.max(0, acc[key].subtotal - acc[key].discount);
+
     return acc;
   }, {}));
 
@@ -82,6 +88,8 @@ const AdminReceipts = ({ admin, setAdmin }) => {
         patientName: selectedGroup.patientName,
         selectedDate: selectedGroup.selectedDate,
         services: selectedGroup.services,
+        subtotal: selectedGroup.subtotal,
+        discount: selectedGroup.discount,
         totalAmount: selectedGroup.totalAmount,
         referenceCode: selectedGroup.referenceCode
       }, {
@@ -186,7 +194,6 @@ const AdminReceipts = ({ admin, setAdmin }) => {
                     
                     <div className="space-y-2 mb-4">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Operations / Services</p>
-                      {/* 🔑 UI UPDATED TO SHOW MULTIPLIER (e.g. "2x Pasta") */}
                       {selectedGroup.services.map((svc, index) => (
                         <div key={index} className="flex justify-between items-center text-sm">
                           <span className="text-slate-600 font-medium">
@@ -199,8 +206,18 @@ const AdminReceipts = ({ admin, setAdmin }) => {
                     </div>
                   </div>
 
-                  <div className="mt-6 pt-6 border-t border-slate-200">
-                    <div className="flex justify-between items-end">
+                  <div className="mt-6 pt-4 border-t border-slate-200 space-y-2">
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>Subtotal</span>
+                      <span className="font-bold">₱{selectedGroup.subtotal.toFixed(2)}</span>
+                    </div>
+                    {selectedGroup.discount > 0 && (
+                      <div className="flex justify-between text-xs text-emerald-600 font-medium">
+                        <span>Discount Applied</span>
+                        <span>-₱{selectedGroup.discount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-end pt-2 border-t border-slate-100">
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Grand Total</span>
                       <span className="text-3xl font-black text-[#D4AF37]">₱{selectedGroup.totalAmount.toFixed(2)}</span>
                     </div>

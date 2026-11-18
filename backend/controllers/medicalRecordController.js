@@ -7,9 +7,25 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// ==========================================
+// CLOUDFLARE R2 S3 CLIENT SETUP
+// ==========================================
+const s3Client = new S3Client({
+  region: 'auto',
+  endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
+
+const BUCKET_NAME = process.env.R2_BUCKET_NAME;
 
 // ==========================================
 // BREVO HTTPS EMAIL HELPER (Bypasses Render SMTP Block)
@@ -68,13 +84,27 @@ const sendBrevoEmail = async ({ senderName = 'Matienzo Dental Clinic', to, subje
 export const uploadMedicalPhoto = async (req, res) => {
   try {
     const { patientId } = req.body;
-    if (!req.file) {
+    if (!req.file || !req.file.buffer) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    // Dynamically generate correct absolute URL for the uploaded photo
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    // 1. Generate unique file name for Cloudflare R2
+    const fileExt = req.file.originalname.split('.').pop();
+    const fileName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${fileExt}`;
+
+    // 2. Push buffer directly to Cloudflare R2 (Bypasses Render disk wipe)
+    const uploadParams = {
+      Bucket: BUCKET_NAME,
+      Key: fileName,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+    };
+
+    await s3Client.send(new PutObjectCommand(uploadParams));
+
+    // 3. Form the permanent public HTTPS URL
+    const publicDomain = process.env.R2_PUBLIC_URL ? process.env.R2_PUBLIC_URL.replace(/\/$/, '') : '';
+    const imageUrl = `${publicDomain}/${fileName}`;
 
     let recordQuery = { patientId: patientId };
     if (mongoose.Types.ObjectId.isValid(patientId)) {
@@ -107,7 +137,7 @@ export const uploadMedicalPhoto = async (req, res) => {
     // Respond immediately so upload never hangs or triggers CORS/timeout errors
     res.status(200).json({
       success: true,
-      message: 'Photo uploaded successfully!',
+      message: 'Photo uploaded successfully to Cloudflare R2!',
       imageUrl,
       photos: record.photos
     });
@@ -136,7 +166,7 @@ export const uploadMedicalPhoto = async (req, res) => {
               <p><strong>Patient ID:</strong> ${patientId}</p>
               <p><strong>Email:</strong> ${patientEmail}</p>
               <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-              <p>The patient has securely uploaded a new photo/x-ray to their medical record.</p>
+              <p>The patient has securely uploaded a new photo/x-ray to their Cloudflare R2 medical record storage.</p>
             </div>
           `
         });
@@ -146,9 +176,9 @@ export const uploadMedicalPhoto = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Upload Error:", error);
+    console.error("R2 Upload Error:", error);
     if (!res.headersSent) {
-      return res.status(500).json({ success: false, message: "Server error uploading photo." });
+      return res.status(500).json({ success: false, message: "Server error uploading photo to cloud storage." });
     }
   }
 };
@@ -407,7 +437,6 @@ export const addPrescription = async (req, res) => {
         </div>
       `;
 
-      // Send to Patient with PDF attachment via Brevo
       sendBrevoEmail({
         senderName: 'Matienzo Dental Clinic',
         to: patientEmail,
@@ -422,7 +451,6 @@ export const addPrescription = async (req, res) => {
           console.error("🚨 Error sending prescription email via Brevo to patient:", err.message);
         });
 
-      // Send copy to Clinic Admin via Brevo
       const clinicEmail = process.env.DENTIST_EMAIL || process.env.EMAIL_USER || 'matienzo.dentalclinic@gmail.com';
       sendBrevoEmail({
         senderName: 'Matienzo Dental System',
