@@ -43,90 +43,82 @@ const sendBrevoEmail = async ({ to, subject, html }) => {
 };
 
 export const registerUser = async (req, res) => {
-  const {
-    email,
-    password,
-    firstName,
-    middleName,
-    lastName,
-    birthdate,
-    gender,
-    contactNumber,
-    address,
-    weight,
-    patientStatus,
-    medicalConditions,
-    allergies,
-    medications,
-    emergencyName,
-    emergencyRelationship,
-    emergencyContact
-  } = req.body;
-
   try {
-    // 1. Check if user already exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'Email already registered.' });
+    const { firstName, lastName, email, password, role, phone, address, age, sex } = req.body;
+
+    // 1. Validate required fields
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please fill in all required fields (Name, Email, Password).' 
+      });
     }
 
-    // 2. Generate Serialized Patient ID
-    const counter = await Counter.findOneAndUpdate(
-      { id: "patient_id_tracker" },
-      { $inc: { seq: 1 } },
-      { returnDocument: 'after', upsert: true }
-    );
+    // 2. Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'An account with this email already exists.' 
+      });
+    }
 
-    const nextAvailableNumber = counter.seq;
-    const assignedPatientId = String(nextAvailableNumber).padStart(4, '0');
+    // 3. Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 3. Create and save new user to MongoDB
+    // 4. Generate unique patientId if patient
+    const patientId = `PAT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    // 5. Create and save the new user
     const newUser = new User({
-      email,
-      password,
       firstName,
-      middleName,
       lastName,
-      birthdate,
-      gender,
-      contactNumber,
-      address,
-      weight,
-      patientStatus,
-      medicalConditions,
-      allergies,
-      medications,
-      emergencyName,
-      emergencyRelationship,
-      emergencyContact,
-      patientId: assignedPatientId
+      email: email.toLowerCase().trim(),
+      password: hashedPassword,
+      role: role || 'patient',
+      phone: phone || '',
+      address: address || '',
+      age: age || null,
+      sex: sex || '',
+      patientId
     });
 
-    await newUser.save();
+    const savedUser = await newUser.save();
 
-    // 🔑 3.5. AUTOMATICALLY CREATE MEDICAL RECORD ON SIGNUP
-    // This ensures their full name appears instantly in Patient Records without needing an appointment
-    const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
-    await MedicalRecord.create({
-      patientId: assignedPatientId,
-      patientName: fullName,
-      history: [],
-      prescriptions: [],
-      photos: []
-    });
+    // 6. Automatically create linked MedicalRecord so names don't show as "Unregistered"
+    try {
+      await MedicalRecord.create({
+        patientId: savedUser.patientId || savedUser._id,
+        patientName: `${savedUser.firstName} ${savedUser.lastName}`,
+        history: [],
+        prescriptions: [],
+        photos: []
+      });
+    } catch (medErr) {
+      console.error("Warning: Failed to auto-create medical record on registration:", medErr.message);
+      // Non-fatal, user is still created successfully
+    }
 
-    // 4. TRIGGER WELCOME EMAIL (Run asynchronously in the background)
-    sendWelcomeEmail(newUser.email, newUser.firstName, newUser.patientId);
-
-    // 5. Respond to frontend
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Registration successful! A welcome email has been sent.',
-      patientId: assignedPatientId
+      message: 'Account registered successfully!',
+      user: {
+        id: savedUser._id,
+        firstName: savedUser.firstName,
+        lastName: savedUser.lastName,
+        email: savedUser.email,
+        patientId: savedUser.patientId,
+        role: savedUser.role
+      }
     });
+
   } catch (error) {
-    console.error("Error during registration:", error);
-    res.status(500).json({ message: 'Server error during registration.' });
+    console.error("🚨 Registration Error (500):", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Server error during registration.' 
+    });
   }
 };
 
