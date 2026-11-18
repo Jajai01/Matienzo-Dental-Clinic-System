@@ -6,24 +6,24 @@ import logo_no_bg from "../assets/logo_no_bg.png";
 const AdminSidebar = ({ admin, setAdmin }) => {
   const navigate = useNavigate();
   
-  // 🔑 State for both badges
+  // State for badges
   const [pendingCount, setPendingCount] = useState(0);
   const [unpaidCount, setUnpaidCount] = useState(0);
+  const [messageBadgeCount, setMessageBadgeCount] = useState(0); // 🔑 Unique patients messaging badge
 
   useEffect(() => {
-    const fetchAppointmentData = async () => {
+    const fetchSidebarData = async () => {
       try {
-        const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/appointments/appointments`);
-        if (res.data && res.data.appointments) {
-          const allAppointments = res.data.appointments;
+        // 1. Fetch appointments for appointment & billing badges
+        const aptRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/appointments/appointments`);
+        if (aptRes.data && aptRes.data.appointments) {
+          const allAppointments = aptRes.data.appointments;
 
-          // 1. Calculate count for the "Appointments" tab
           const activeAppointments = allAppointments.filter(
             apt => apt.status === 'Pending Review' || apt.status === 'Confirmed'
           );
           setPendingCount(activeAppointments.length);
 
-          // 2. Calculate count for the "Billing & Invoices" tab (Confirmed & Unpaid)
           const unpaidBilling = allAppointments.filter(apt => {
             const status = (apt.status || "").trim().toLowerCase();
             const paymentStatus = (apt.paymentStatus || "").trim().toLowerCase();
@@ -31,18 +31,35 @@ const AdminSidebar = ({ admin, setAdmin }) => {
           });
           setUnpaidCount(unpaidBilling.length);
         }
+
+        // 2. Fetch support/chat messages to count unique patients who messaged
+        const msgRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/support/messages`); 
+        const messages = msgRes.data?.messages || msgRes.data || [];
+        
+        if (Array.isArray(messages)) {
+          // Count unique patients who sent messages
+          const uniquePatients = new Set(
+            messages
+              .filter(msg => msg.senderModel === 'User' || msg.senderType === 'patient' || !msg.isAdmin)
+              .map(msg => msg.patientId || msg.userId || msg.email || msg.sender)
+          );
+          setMessageBadgeCount(uniquePatients.size);
+        }
       } catch (error) {
-        console.error("Failed to fetch appointment data", error);
+        console.error("Failed to fetch sidebar badge data", error);
       }
     };
 
-    fetchAppointmentData();
+    fetchSidebarData();
+    
+    // Poll every 30 seconds to keep live chat counts updated
+    const interval = setInterval(fetchSidebarData, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleAdminLogout = async (e) => {
     e.preventDefault();
     
-    // 🔑 1. Tell the server the doctor is going offline
     try {
       await axios.post(`${import.meta.env.VITE_API_URL}/api/admin/doctor-status`, { 
         isActive: false 
@@ -51,7 +68,6 @@ const AdminSidebar = ({ admin, setAdmin }) => {
       console.error("Failed to update doctor offline status:", error);
     }
 
-    // 2. Clear credentials
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminData'); 
     
@@ -59,7 +75,6 @@ const AdminSidebar = ({ admin, setAdmin }) => {
       setAdmin(null);
     }
     
-    // 3. Redirect
     navigate('/admin'); 
   };
 
@@ -67,7 +82,12 @@ const AdminSidebar = ({ admin, setAdmin }) => {
     {
       groupName: "Main",
       items: [
-        { id: 'admin-dashboard', label: 'Dashboard', path: '/admin-dashboard' }
+        { 
+          id: 'admin-dashboard', 
+          label: 'Dashboard', 
+          path: '/admin-dashboard',
+          badge: messageBadgeCount > 0 ? messageBadgeCount : null // 🔑 Moved chat message badge here
+        }
       ]
     },
     {
@@ -99,7 +119,7 @@ const AdminSidebar = ({ admin, setAdmin }) => {
           path: '/admin-billings',
           badge: unpaidCount > 0 ? unpaidCount : null 
         },
-        { id: 'admin-installments', label: 'Installments', path: '/admin/installments' } // 🔑 Added Installments Tracker Tab
+        { id: 'admin-installments', label: 'Installments', path: '/admin/installments' }
       ]
     },
     {

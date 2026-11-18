@@ -87,7 +87,20 @@ const MedicalRecord = ({ user, setUser }) => {
     }
   }, [messages, isChatOpen]);
 
-  // 🔑 HANDLE OPEN CHAT & MARK MESSAGES AS READ
+  // 🔑 FORMAT DATE & TIME FOR CHAT BUBBLES
+  const formatMessageDateTime = (msg) => {
+    if (!msg) return '';
+    if (msg.date && msg.time) return `${msg.date} • ${msg.time}`;
+    if (msg.timestamp) {
+      const d = new Date(msg.timestamp);
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = msg.time || d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      return `${dateStr} • ${timeStr}`;
+    }
+    return msg.time || '';
+  };
+
+  // 🔑 HANDLE OPEN CHAT & MARK MESSAGES AS READ IN MONGODB
   const handleToggleChat = async () => {
     const nextState = !isChatOpen;
     setIsChatOpen(nextState);
@@ -96,14 +109,18 @@ const MedicalRecord = ({ user, setUser }) => {
       const patientId = user?.patientId || user?._id;
       if (!patientId) return;
 
-      try {
-        await axios.put(`${import.meta.env.VITE_API_URL}/api/chats/read/${patientId}`, {
-          readerRole: 'patient'
-        });
-        // Update local state so unread badges clear immediately
-        setMessages(prev => prev.map(m => m.sender === 'doctor' ? { ...m, read: true } : m));
-      } catch (err) {
-        console.error("Failed to mark chat as read", err);
+      const hasUnread = messages.some(m => m.sender !== 'patient' && !m.read);
+      if (hasUnread) {
+        // Optimistically update UI immediately
+        setMessages(prev => prev.map(m => m.sender !== 'patient' ? { ...m, read: true } : m));
+
+        try {
+          await axios.patch(`${import.meta.env.VITE_API_URL}/api/chats/patient/${patientId}/read`, {
+            readerRole: 'patient'
+          });
+        } catch (err) {
+          console.error("Failed to mark chat as read", err);
+        }
       }
     }
   };
@@ -113,10 +130,19 @@ const MedicalRecord = ({ user, setUser }) => {
     if (!newMessage.trim()) return;
 
     const patientId = user?.patientId || user?._id;
-    const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const now = new Date();
+    const currentDate = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const currentTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
     const messageToSend = newMessage;
-    const tempMessage = { id: Date.now(), sender: 'patient', text: messageToSend, time: currentTime, read: true };
+    const tempMessage = { 
+      id: Date.now(), 
+      sender: 'patient', 
+      text: messageToSend, 
+      date: currentDate,
+      time: currentTime, 
+      read: true 
+    };
     
     setMessages((prev) => [...prev, tempMessage]);
     setNewMessage('');
@@ -127,6 +153,7 @@ const MedicalRecord = ({ user, setUser }) => {
         sender: 'patient', 
         message: messageToSend,
         text: messageToSend,
+        date: currentDate,
         time: currentTime
       });
     } catch (error) {
@@ -211,7 +238,7 @@ const MedicalRecord = ({ user, setUser }) => {
   };
 
   // 🔑 Calculate unread messages from doctor
-  const unreadCount = messages.filter(m => m.sender === 'doctor' && !m.read).length;
+  const unreadCount = messages.filter(m => m.sender !== 'patient' && !m.read).length;
 
   if (isLoading) {
     return (
@@ -589,7 +616,9 @@ const MedicalRecord = ({ user, setUser }) => {
                   <div className={`px-4 py-2 rounded-2xl text-sm font-medium shadow-sm max-w-[85%] ${msg.sender === 'patient' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'}`}>
                     {msg.text}
                   </div>
-                  <span className="text-[9px] text-slate-400 font-bold mt-1 px-1">{msg.time}</span>
+                  <span className="text-[9px] text-slate-400 font-bold mt-1 px-1">
+                    {formatMessageDateTime(msg)}
+                  </span>
                 </div>
               ))}
               <div ref={chatEndRef} />

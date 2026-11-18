@@ -48,7 +48,7 @@ const AppointmentsAdmin = ({ admin, setAdmin }) => {
   const [yearFilter, setYearFilter] = useState('All');
   
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  const ITEMS_PER_PAGE = 20;
 
   // Modals
   const [selectedEventModal, setSelectedEventModal] = useState({ show: false, appointment: null });
@@ -250,7 +250,7 @@ const AppointmentsAdmin = ({ admin, setAdmin }) => {
     <div className="flex w-full min-h-screen bg-slate-50 text-slate-900 antialiased font-sans relative">
       <AdminSidebar admin={admin} setAdmin={setAdmin} />
       
-      <main className="flex-1 pt-[50px] px-6 md:px-8 pb-8 min-h-screen">
+      <main className="flex-1 pt-12.5 px-6 md:px-8 pb-8 min-h-screen">
         <div className="w-full space-y-8">
           
           <div className="border-b border-slate-200 pb-6 text-left">
@@ -260,7 +260,7 @@ const AppointmentsAdmin = ({ admin, setAdmin }) => {
 
           <div className="bg-white border-2 border-slate-200/80 rounded-3xl p-6 shadow-sm">
             {isLoading ? (
-              <div className="h-[500px] flex items-center justify-center">
+              <div className="h-125 flex items-center justify-center">
                 <span className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
               </div>
             ) : (

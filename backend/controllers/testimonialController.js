@@ -32,13 +32,21 @@ export const getApprovedTestimonials = async (req, res) => {
     });
   }
 };
+
 // 3. Fetch ALL testimonials for the Admin Console
 export const getAllTestimonialsAdmin = async (req, res) => {
   try {
     const testimonials = await Testimonial.find().sort({ createdAt: -1 });
-    res.status(200).json({ returnDocument: 'after', testimonials });
+    return res.status(200).json({ 
+      success: true, 
+      testimonials 
+    });
   } catch (error) {
-    res.status(500).json({ returnDocument: 'before', message: "Failed to fetch admin testimonials." });
+    console.error("Error fetching admin testimonials:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch admin testimonials." 
+    });
   }
 };
 
@@ -48,21 +56,28 @@ export const updateTestimonialStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body; // 'approved' or 'rejected'
     
-    // { new: true } returns the updated document
-    const updated = await Testimonial.findByIdAndUpdate(id, { status }, { new: true });
+    const updated = await Testimonial.findByIdAndUpdate(
+      id, 
+      { status }, 
+      { returnDocument: 'after' }
+    );
+
     if (!updated) {
-      return res.status(404).json({ returnDocument: 'before', message: "Testimonial not found." });
+      return res.status(404).json({ 
+        success: false, 
+        message: "Testimonial not found." 
+      });
     }
     
-    res.status(200).json({ 
-      returnDocument: 'after',
+    return res.status(200).json({ 
+      success: true,
       message: `Testimonial successfully ${status}.`, 
       updated 
     });
   } catch (error) {
     console.error("Error updating testimonial status:", error);
-    res.status(500).json({ 
-      returnDocument: 'before',
+    return res.status(500).json({ 
+      success: false,
       message: "Failed to update status." 
     });
   }

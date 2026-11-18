@@ -30,7 +30,6 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChat, setActiveChat] = useState(null);
   const [replyText, setReplyText] = useState("");
-  const [locallyRead, setLocallyRead] = useState([]); 
   const [patientNamesMap, setPatientNamesMap] = useState({}); 
   const chatScrollRef = useRef(null);
 
@@ -53,9 +52,7 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
       return patientNamesMap[possibleId];
     }
     
-    // If we only have an ID string, let's see if it's stored in the map loosely
     if (possibleId) {
-      // Return a cleaner formatted string or the ID if nothing else matches
       return `Patient ID: ${possibleId}`;
     }
     
@@ -290,20 +287,45 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
   };
 
   // ==========================================
-  // 💬 CHAT LOGIC
+  // 💬 CHAT LOGIC (Fixed for Permanent Read Persistence & Timestamps)
   // ==========================================
   const isChatUnread = (chat) => {
-    if (!chat.messages || chat.messages.length === 0) return false;
-    const lastMsg = chat.messages[chat.messages.length - 1];
-    return lastMsg.sender === 'patient' && !locallyRead.includes(chat._id);
+    return chat.messages?.some((msg) => msg.sender === 'patient' && !msg.read);
   };
 
   const totalUnreadCount = chats.filter(isChatUnread).length;
 
-  const handleOpenChat = (chat) => {
-    setActiveChat(chat);
-    if (!locallyRead.includes(chat._id)) {
-      setLocallyRead([...locallyRead, chat._id]);
+  // Format date and time reliably for inbox list & message bubbles
+  const formatMessageDateTime = (msg) => {
+    if (!msg) return '';
+    if (msg.date && msg.time) return `${msg.date} • ${msg.time}`;
+    if (msg.timestamp) {
+      const d = new Date(msg.timestamp);
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = msg.time || d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      return `${dateStr} • ${timeStr}`;
+    }
+    return msg.time || '';
+  };
+
+  // Open chat, update UI immediately, and persist `read: true` to backend MongoDB
+  const handleOpenChat = async (chat) => {
+    const updatedMessages = chat.messages?.map((msg) =>
+      msg.sender === 'patient' ? { ...msg, read: true } : msg
+    );
+    const updatedChat = { ...chat, messages: updatedMessages };
+
+    setActiveChat(updatedChat);
+    setChats(prevChats => prevChats.map(c => c._id === chat._id ? updatedChat : c));
+
+    if (isChatUnread(chat)) {
+      try {
+        await axios.patch(`${import.meta.env.VITE_API_URL}/api/chats/patient/${chat.patientId}/read`, {
+          readerRole: 'doctor'
+        });
+      } catch (error) {
+        console.error("Failed to mark messages as read on backend", error);
+      }
     }
   };
 
@@ -311,14 +333,17 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
     e.preventDefault();
     if (!replyText.trim() || !activeChat) return;
 
+    const now = new Date();
     const newMessage = {
+      sender: 'doctor',
       text: replyText,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
     };
 
     const updatedChats = chats.map(c => {
       if (c._id === activeChat._id) {
-        return { ...c, messages: [...c.messages, { sender: 'doctor', ...newMessage }] };
+        return { ...c, messages: [...c.messages, newMessage] };
       }
       return c;
     });
@@ -327,7 +352,11 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
     setReplyText("");
 
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/api/chats/${activeChat._id}/message`, newMessage);
+      await axios.post(`${import.meta.env.VITE_API_URL}/api/chats/${activeChat._id}/message`, {
+        text: newMessage.text,
+        date: newMessage.date,
+        time: newMessage.time
+      });
     } catch (error) {
       console.error("Failed to send reply to backend", error);
     }
@@ -658,10 +687,10 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
                         {getInitials(chat)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-baseline mb-1">
+                        <div className="flex justify-between items-baseline mb-1 gap-2">
                           <h4 className="text-sm font-bold text-slate-900 truncate">{getPatientDisplayName(chat)}</h4>
                           <span className="text-[10px] font-semibold text-slate-400 shrink-0">
-                            {chat.messages?.[chat.messages.length - 1]?.time}
+                            {formatMessageDateTime(chat.messages?.[chat.messages.length - 1])}
                           </span>
                         </div>
                         <p className={`text-xs truncate ${isChatUnread(chat) ? 'font-bold text-slate-900' : 'text-slate-500 font-medium'}`}>
@@ -693,7 +722,9 @@ const AdminDashboard = ({ user, admin, setAdmin }) => {
                           }`}>
                             {msg.text}
                           </div>
-                          <span className="text-[9px] font-bold text-slate-400 mt-1.5 px-1">{msg.time}</span>
+                          <span className="text-[9px] font-bold text-slate-400 mt-1.5 px-1">
+                            {formatMessageDateTime(msg)}
+                          </span>
                         </div>
                       );
                     })}
