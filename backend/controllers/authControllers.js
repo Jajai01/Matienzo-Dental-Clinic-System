@@ -44,18 +44,25 @@ const sendBrevoEmail = async ({ to, subject, html }) => {
 
 export const registerUser = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, role, phone, address, age, sex } = req.body;
-
-    // 1. Validate required fields
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Please fill in all required fields (Name, Email, Password).' 
-      });
-    }
+    // 1. Extract ALL fields sent by the frontend registration form
+    const { 
+      firstName, 
+      middleName, 
+      lastName, 
+      email, 
+      password, 
+      contactNumber, 
+      phone,         // Fallback in case frontend sends 'phone'
+      birthdate, 
+      gender, 
+      sex,           // Fallback in case frontend sends 'sex'
+      address, 
+      age, 
+      role 
+    } = req.body;
 
     // 2. Check if user already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+    const existingUser = await User.findOne({ email: email?.toLowerCase().trim() });
     if (existingUser) {
       return res.status(400).json({ 
         success: false, 
@@ -67,26 +74,28 @@ export const registerUser = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. Generate unique patientId if patient
+    // 4. Generate unique patientId
     const patientId = `PAT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-    // 5. Create and save the new user
+    // 5. Pass all required schema fields into new User()
     const newUser = new User({
       firstName,
+      middleName: middleName || 'N/A', // Prevents crash if middle name is left blank
       lastName,
       email: email.toLowerCase().trim(),
       password: hashedPassword,
-      role: role || 'patient',
-      phone: phone || '',
+      contactNumber: contactNumber || phone,
+      birthdate,
+      gender: gender || sex,
       address: address || '',
       age: age || null,
-      sex: sex || '',
+      role: role || 'patient',
       patientId
     });
 
     const savedUser = await newUser.save();
 
-    // 6. Automatically create linked MedicalRecord so names don't show as "Unregistered"
+    // 6. Auto-create linked MedicalRecord
     try {
       await MedicalRecord.create({
         patientId: savedUser.patientId || savedUser._id,
@@ -96,8 +105,7 @@ export const registerUser = async (req, res) => {
         photos: []
       });
     } catch (medErr) {
-      console.error("Warning: Failed to auto-create medical record on registration:", medErr.message);
-      // Non-fatal, user is still created successfully
+      console.error("Warning: Failed to auto-create medical record:", medErr.message);
     }
 
     return res.status(201).json({
@@ -114,7 +122,7 @@ export const registerUser = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("🚨 Registration Error (500):", error);
+    console.error("🚨 Registration Error:", error);
     return res.status(500).json({ 
       success: false, 
       message: error.message || 'Server error during registration.' 
